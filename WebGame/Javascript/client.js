@@ -1,9 +1,16 @@
 "use strict";
 
 var pi = 3.14159265358979323;
-var c;
-var canvasWidth;
-var canvasHeight;
+var g_canvas;
+var g_canvasWidth;
+var g_canvasHeight;
+var g_socket;
+var g_username;
+var g_game;
+var cookies = {
+	username: "username",
+	colorScheme: "colorScheme"
+}
 
 var colorSchemeArray = [];
 (() =>
@@ -54,8 +61,8 @@ var renderables = [];
 // Get the coord that a rect should be at to be in the center
 function getRectCenteredCoordFromSize(size)
 {
-	let xCoord = (canvasWidth / 2) - (size.x / 2);
-	let yCoord = (canvasHeight / 2) - (size.y / 2);
+	let xCoord = (g_canvasWidth / 2) - (size.x / 2);
+	let yCoord = (g_canvasHeight / 2) - (size.y / 2);
 	return { x: xCoord, y: yCoord };
 }
 
@@ -82,12 +89,12 @@ function getSizeGivenAspectRatio(maxPercentX, maxPercentY, aspectRatio)
 
 function yPercentToPixel(percentY)
 {
-	return percentY / 100 * canvasHeight;
+	return percentY / 100 * g_canvasHeight;
 }
 
 function xPercentToPixel(percentX)
 {
-	return percentX / 100 * canvasWidth;
+	return percentX / 100 * g_canvasWidth;
 }
 
 class Renderable
@@ -201,136 +208,111 @@ class Board extends Renderable
 		return Math.floor(distance / columnSize);
 	}
 
-	// Returns 0 if no winner, otherwise 1 or 2
+	// Returns team = -1 if no winner, otherwise team == 1 or 2 and slots with winning line
 	// See https://stackoverflow.com/questions/32770321/connect-4-check-for-a-win-algorithm
 	getWinner()
 	{
 		let lastTeam = 0;
 		let connectionCount = 0;
+		let currentTeam = 0;
+		let slots = [];
+
+		let lineReset = () =>{
+			slots = [];
+			lastTeam = connectionCount = currentTeam = 0;
+		}
+
+		let breakStreak = () =>{
+			slots = [];
+			connectionCount = 0;
+		}
+
+		let checkForWinner = (col, row) =>{
+			currentTeam = this.board[col][row];
+			if (currentTeam !== 0 && currentTeam === lastTeam)
+			{
+				++connectionCount;
+				if (connectionCount === this.winAmoumt - 1)
+				{
+					slots.push({x:col, y:row});
+					return {team:lastTeam, slots:slots};
+				}
+			} else
+			{
+				breakStreak();
+			}
+			slots.push({x:col, y:row});
+			lastTeam = currentTeam;
+			return {team:-1, slots:undefined};
+		}
+
 		// Check vertical
-		for (let i = 0; i < this.columns; ++i)
+		for (let col = 0; col < this.columns; ++col)
 		{
-			for (let j = 0; j < this.rows; ++j)
+			for (let row = 0; row < this.rows; ++row)
 			{
-				let currentTeam = this.board[i][j];
-				if (currentTeam !== 0 && currentTeam === lastTeam)
-				{
-					++connectionCount;
-					if (connectionCount === this.winAmoumt - 1)
-					{
-						return lastTeam;
-					}
-				} else
-				{
-					connectionCount = 0;
+				let winner = checkForWinner(col, row);
+				if (winner.team !== -1){
+					return winner;
 				}
-				lastTeam = currentTeam;
 			}
+			lineReset();
 		}
-		connectionCount = 0;
 		// Check horrizontal
-		for (let j = 0; j < this.rows; ++j)
+		for (let row = 0; row < this.rows; ++row)
 		{
-			for (let i = 0; i < this.columns; ++i)
+			for (let col = 0; col < this.columns; ++col)
 			{
-				let currentTeam = this.board[i][j];
-				if (currentTeam !== 0 & currentTeam === lastTeam)
-				{
-					++connectionCount;
-					if (connectionCount === this.winAmoumt - 1)
-					{
-						return lastTeam;
-					}
-				} else
-				{
-					connectionCount = 0;
+				let winner = checkForWinner(col, row);
+				if (winner.team !== -1){
+					return winner;
 				}
-				lastTeam = currentTeam;
 			}
+			lineReset();
 		}
-		connectionCount = 0;
 		// Diagonal lines
 		for (let startCol = 0, startRow = 0;
-			 startCol < this.columns - this.winAmoumt; ++startCol){
+			 startCol < this.columns - this.winAmoumt + 1; ++startCol){
 			for(let col = startCol, row = startRow; col < this.columns && row < this.rows; ++col, ++row){
-				let currentTeam = this.board[col][row];
-				if (currentTeam !== 0 & currentTeam === lastTeam)
-				{
-					++connectionCount;
-					if (connectionCount === this.winAmoumt - 1)
-					{
-						return lastTeam;
-					}
-				} else
-				{
-					connectionCount = 0;
+				let winner = checkForWinner(col, row);
+				if (winner.team !== -1){
+					return winner;
 				}
-				lastTeam = currentTeam;
 			}
-			connectionCount = 0;
+			lineReset();
 		}
-		connectionCount = 0;
-		for (let startCol = 1, startRow = 1;
-			 startRow < this.rows - this.winAmoumt; ++startRow){
+		for (let startCol = 0, startRow = 1;
+			 startRow < this.rows - this.winAmoumt + 1; ++startRow){
 			for(let col = startCol, row = startRow; col < this.columns && row < this.rows; ++col, ++row){
-				let currentTeam = this.board[col][row];
-				if (currentTeam !== 0 & currentTeam === lastTeam)
-				{
-					++connectionCount;
-					if (connectionCount === this.winAmoumt - 1)
-					{
-						return lastTeam;
-					}
-				} else
-				{
-					connectionCount = 0;
+				let winner = checkForWinner(col, row);
+				if (winner.team !== -1){
+					return winner;
 				}
-				lastTeam = currentTeam;
 			}
-			connectionCount = 0;
+			lineReset();
 		}
-		connectionCount = 0;
 		for (let startCol = this.columns - 1, startRow = 0;
 			startCol >= this.winAmoumt - 1; --startCol){
 			for(let col = startCol, row = startRow; col >= 0 && row < this.rows; --col, ++row){
-				let currentTeam = this.board[col][row];
-				if (currentTeam !== 0 & currentTeam === lastTeam)
-				{
-					++connectionCount;
-					if (connectionCount === this.winAmoumt - 1)
-					{
-						return lastTeam;
-					}
-				} else
-				{
-					connectionCount = 0;
+				let winner = checkForWinner(col, row);
+				if (winner.team !== -1){
+					return winner;
 				}
-				lastTeam = currentTeam;
 			}
-			connectionCount = 0;
+			lineReset();
 		}
-		connectionCount = 0;
 		for (let startCol = this.columns - 1, startRow = 1;
-			startRow < this.rows - this.winAmoumt; ++startRow){
+			startRow < this.rows - this.winAmoumt + 1; ++startRow){
 			for(let col = startCol, row = startRow; col >= 0 && row < this.rows; --col, ++row){
-				let currentTeam = this.board[col][row];
-				if (currentTeam !== 0 & currentTeam === lastTeam)
-				{
-					++connectionCount;
-					if (connectionCount === this.winAmoumt - 1)
-					{
-						return lastTeam;
-					}
-				} else
-				{
-					connectionCount = 0;
+				let winner = checkForWinner(col, row);
+				if (winner.team !== -1){
+					return winner;
 				}
-				lastTeam = currentTeam;
 			}
-			connectionCount = 0;
+			lineReset();
 		}
 		// TODO Winning line animation
-		return 0;
+		return {team:-1, slots:undefined};
 	}
 
 	changeColorScheme(index)
@@ -433,17 +415,12 @@ class Board extends Renderable
 
 	render()
 	{
-		let winner = this.getWinner();
-		if (winner !== 0){
-			console.log("Winner: " + winner);
-			this.clear();
-		}
 		this.size = getSizeGivenAspectRatio(80, 70, 6 / 7);
 		this.coords = getRectCenteredCoordFromSize(this.size);
 
 		// Fill board
-		c.fillStyle = this.colorScheme.board;
-		c.fillRect(this.coords.x, this.coords.y, this.size.x, this.size.y);
+		g_canvas.fillStyle = this.colorScheme.board;
+		g_canvas.fillRect(this.coords.x, this.coords.y, this.size.x, this.size.y);
 
 		// Get the dynamic radius of the circles
 		let twoPercentX = 2 / 100 * this.size.x;
@@ -453,20 +430,20 @@ class Board extends Renderable
 			this.radius = 1;
 		}
 		// Make board cutouts
-		c.save();
-		c.globalCompositeOperation = "destination-out";
+		g_canvas.save();
+		g_canvas.globalCompositeOperation = "destination-out";
 		for (let i = 0; i < this.columns; ++i)
 		{
 			for (let j = 0; j < this.rows; ++j)
 			{
-				c.beginPath();
+				g_canvas.beginPath();
 				let circleCoords = this.private_getCircleCoords(i, j);
-				c.arc(circleCoords.x, circleCoords.y, this.radius, 0, 2 * pi, false);
-				c.fill();
-				c.closePath();
+				g_canvas.arc(circleCoords.x, circleCoords.y, this.radius, 0, 2 * pi, false);
+				g_canvas.fill();
+				g_canvas.closePath();
 			}
 		}
-		c.restore();
+		g_canvas.restore();
 
 		// Fill active slot
 		let slot = this.activeSlot;
@@ -481,8 +458,8 @@ class Board extends Renderable
 		}
 
 		// Fill chips behind board
-		c.save();
-		c.globalCompositeOperation = "destination-over";
+		g_canvas.save();
+		g_canvas.globalCompositeOperation = "destination-over";
 		for (let i = 0; i < this.visualChips.length; ++i)
 		{
 			let chip = this.visualChips[i];
@@ -497,14 +474,29 @@ class Board extends Renderable
 			}
 			chip.render();
 		}
-		c.restore();
+		g_canvas.restore();
 
 		// Fill background behind everything
-		c.save();
-		c.globalCompositeOperation = "destination-over";
-		c.fillStyle = this.colorScheme.background;
-		c.fillRect(0, 0, canvasWidth, canvasHeight);
-		c.restore();
+		g_canvas.save();
+		g_canvas.globalCompositeOperation = "destination-over";
+		g_canvas.fillStyle = this.colorScheme.background;
+		g_canvas.fillRect(0, 0, g_canvasWidth, g_canvasHeight);
+		g_canvas.restore();
+
+		// TODO Change winner animation to function 
+		let winner = this.getWinner();
+		if (winner.team !== -1){
+			//console.log("Winner: " + winner.team);
+			//console.log(winner.slots);
+			for(let i = 0; i < winner.slots.length; ++i){
+				let slot = winner.slots[i];
+				let slotCoords = this.private_getCircleCoords(slot.x, slot.y);
+				fillCircle(slotCoords.x,
+					slotCoords.y,
+					this.radius * 0.75,
+					"#ffffff88");
+			}
+		}
 	}
 }
 
@@ -551,21 +543,23 @@ class GravityChip extends Renderable
 
 function fillCircle(x, y, radius, color)
 {
-	c.beginPath();
-	c.fillStyle = color;
-	c.arc(x, y, radius, 0, 2 * pi, false);
-	c.fill();
-	c.closePath();
+	g_canvas.beginPath();
+	g_canvas.fillStyle = color;
+	g_canvas.arc(x, y, radius, 0, 2 * pi, false);
+	g_canvas.fill();
+	g_canvas.closePath();
 }
 
 $(function ()
 {
+	InitializeSocket();
+
 	// Initialize canvas
 	var canvas = document.querySelector('canvas');
-	canvasWidth = canvas.width = window.innerWidth;
-	canvasHeight = canvas.height = window.innerHeight;
+	g_canvasWidth = canvas.width = window.innerWidth;
+	g_canvasHeight = canvas.height = window.innerHeight;
 	console.log(canvas);
-	c = canvas.getContext("2d");
+	g_canvas = canvas.getContext("2d");
 
 	// Update mouse variable on move
 	window.addEventListener("mousemove", (event) =>
@@ -578,8 +572,8 @@ $(function ()
 	{
 		// Resize canvas to window size
 		var canvas = document.querySelector('canvas');
-		canvasWidth = canvas.width = window.innerWidth;
-		canvasHeight = canvas.height = window.innerHeight;
+		g_canvasWidth = canvas.width = window.innerWidth;
+		g_canvasHeight = canvas.height = window.innerHeight;
 	});
 
 	// Make a board
@@ -619,13 +613,79 @@ $(function ()
 	draw();
 });
 
+function InitializeSocket(){
+	var socket = io();
+	createCookie(cookies.username, "bob", 1);
+	g_username = getCookieValue(cookies.username);
+	console.log("Read username cookie: " + g_username);
+
+
+	socket.on("usernameResponse",
+		(username) => {
+			deleteCookie(cookies.username);
+			console.log("Removed username cookie");
+			createCookie(cookies.username, username, 30);
+			g_username = username;
+			console.log("Added username cookie: " + g_username);
+		});
+	
+	socket.on("gameCreated", (game) =>{
+		g_game = game;
+		// Todo launch some other things
+		// Initialize game and wait for gameStarted
+	});
+	socket.on("gameJoined", () =>{
+		// TODO
+		// Join a game and wait for gameStarted
+	});
+	socket.on("gameIsFull", () =>{
+		// TODO Message that game is full
+	});
+	socket.on("gameStarted", () =>{
+		// TODO
+	});
+	socket.on("turnNotify", () =>{
+		// TODO
+	});
+	socket.on("waitForTurn", () =>{
+		// TODO
+	});
+
+	//socket.emit("usernameRequest", g_username);
+
+	//socket.emit("createGame");
+
+
+}
+
 // Animation function to run every frame
 function draw()
 {
 	requestAnimationFrame(draw);
-	c.clearRect(0, 0, canvasWidth, canvasHeight);
+	g_canvas.clearRect(0, 0, g_canvasWidth, g_canvasHeight);
 	for (let i = 0; i < renderables.length; ++i)
 	{
 		renderables[i].render();
 	}
+}
+
+// Based on https://stackoverflow.com/questions/5639346/what-is-the-shortest-function-for-reading-a-cookie-by-name-in-javascript
+function createCookie(name,value,days) {
+    if (days) {
+        var date = new Date();
+        date.setTime(date.getTime() + (days * 24 * 60 * 60 *1000));
+        var expires = "; expires=" + date.toGMTString();
+    } else {
+        var expires = "";
+    }
+    document.cookie = name + "=" + value + expires + "; path=/";
+}
+
+function getCookieValue(cookieName) {
+    var matched = document.cookie.match("(^|[^;]+)\\s*" + cookieName + "\\s*=\\s*([^;]+)");
+    return matched ? matched.pop() : "";
+}
+
+function deleteCookie(name) {
+    createCookie(name,"",-1);
 }
