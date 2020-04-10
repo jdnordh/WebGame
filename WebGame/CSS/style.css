@@ -17,4 +17,128 @@ body {
 
 * {
 	font-family: 'Righteous', cursive;
+
+	/* From https://www.arungudelli.com/tutorial/css/disable-text-selection-in-html-using-user-select-css-property/*/
+	user-select: none;
+   -webkit-user-select: none;
+   -moz-user-select: none; 
+   -ms-user-select: none; 
 }
+button{
+	border: 2px solid #ddd;
+	border-radius: 5px;
+	background-color: #ddd;
+	margin: 0 auto;
+	font-size: 3vw;
+	text-align: center;
+	outline: none;
+	width: 80%;
+}
+
+label{
+	text-align: center;
+	font-size: 3vw;
+	outline: none;
+}
+
+input{
+	border: 0px;
+	border-radius: 5px;
+	background-color: #ddd;
+	margin: 10px;
+	margin-bottom: 0;
+	font-size: 3vw;
+	outline: none;
+	width: 80%;
+	color: #333;
+	padding: 5px;
+	text-align: center;
+	outline: none;
+	margin: 0 auto;
+	padding: 0;
+}
+
+button:hover{
+	background-color: #eee;
+	border: 2px solid #666;
+}
+
+.back-button{
+	font-size: 2vw;
+	color: #333;
+	width: 50%;
+}
+
+/* From https://www.w3schools.com/howto/howto_css_center-vertical.asp */
+#menuDiv, #messageDiv{
+	width: auto;
+	height: auto;
+	max-width: 50%;
+	max-height: 75%;
+	margin: 0;
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	-ms-transform: translate(-50%, -50%);
+	transform: translate(-50%, -50%);
+}
+
+#greyOut{
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	background-color: #44444488;
+}
+
+#menu{
+	border: 2px solid #eee;
+	border-radius: 5px;
+	background-color: #eee;
+	margin: 0 auto;
+	display: grid;
+	grid-column: auto;
+	grid-template-rows: auto;
+	row-gap: 10px;
+	padding: 10px;
+}
+
+#error{
+	border: 2px solid #999;
+	border-radius: 5px;
+	background-color: #eee;
+	margin: 0 auto;
+	display: grid;
+	grid-column: auto;
+	grid-template-rows: auto;
+	row-gap: 10px;
+	padding: 10px;
+}
+
+.grid-row-1 {
+	grid-row-start: 1;
+	grid-row-end: 2;
+	max-height: 100%;
+	max-width: 100%;
+}
+
+.grid-row-2 {
+	grid-row-start: 2;
+	grid-row-end: 3;
+	max-height: 100%;
+	max-width: 100%;
+}
+
+.grid-row-3 {
+	grid-row-start: 3;
+	grid-row-end: 4;
+	max-height: 100%;
+	max-width: 100%;
+}
+
+.grid-row-4 {
+	grid-row-start: 4;
+	grid-row-end: 5;
+	max-height: 100%;
+	max-width: 100%;
+}
+
