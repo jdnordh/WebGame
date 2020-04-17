@@ -14,12 +14,14 @@ var s_clientStates = {mainMenu: 0, inGame:1}
 var g_clientState = s_clientStates.inGame;
 var s_cookies = {
 	username: "username",
-	colorScheme: "colorScheme"
+	colorScheme: "colorScheme",
+	sessionKey: "sessionKey"
 }
 var s_gameStates = {waitingForPlayer: 0, waitingForTurn: 1, playingTurn: 2, finished: 3}
 
 var g_mouse = { x: undefined, y: undefined };
 var g_renderables = [];
+var g_clickables = [];
 
 var s_colorSchemes = [];
 (() =>
@@ -101,6 +103,8 @@ function xPercentToPixel(percentX)
 	return percentX / 100 * g_canvasWidth;
 }
 
+//#region Classes
+
 class Renderable
 {
 	render()
@@ -109,9 +113,102 @@ class Renderable
 	}
 }
 
+class Clickable{
+	// Constructor value are in percentage of the window
+	// Click action is the action to perform when clicked
+	// Update hover action takes a bool that specifies if the mouse is hovering over
+	constructor(isEnabled, xPos, yPos, width, height, clickAction, updateHoverStateAction){
+		this.isEnabled = isEnabled;
+		this.xPos = xPos;
+		this.yPos = yPos;
+		this.width = width;
+		this.height = height;
+		this.clickAction = clickAction;
+		this.updateHoverStateAction = updateHoverStateAction;
+	}
+
+	clickAt(mouseX, mouseY){
+		if (!this.isEnabled){
+			return;
+		}
+		let left = xPercentToPixel(this.xPos);
+		let right = xPercentToPixel(this.xPos + this.width);
+		let top = yPercentToPixel(this.yPos);
+		let bottom = yPercentToPixel(this.yPos + this.height);
+
+		if (mouseX > left && mouseX < right &&
+			mouseY > top && mouseY < bottom){
+				this.clickAction();
+		}
+	}
+
+	updateHoverState(mouseX, mouseY){
+		if (!this.isEnabled){
+			return;
+		}
+		let left = xPercentToPixel(this.xPos);
+		let right = xPercentToPixel(this.xPos + this.width);
+		let top = yPercentToPixel(this.yPos);
+		let bottom = yPercentToPixel(this.yPos + this.height);
+
+		let mouseIsOver = mouseX > left && mouseX < right && mouseY > top && mouseY < bottom;
+		this.updateHoverStateAction(mouseIsOver);
+	}
+}
+
+class Button extends Renderable{
+	constructor(isEnabled, xPos, yPos, width, height, text, clickAction, colorScheme)
+	{
+		super();
+		this.isEnabled = isEnabled;
+		this.text = text;
+		this.colorScheme = colorScheme;
+		this.borderColor = "#dddddd";
+		this.backgroundColor = "#dddddd";
+		this.isHovering = false;
+		let self = this;
+		let updateHoverStateAction = (value) =>{
+			self.isHovering = value;
+		};
+		this.clickable = new Clickable(isEnabled, xPos, yPos, width, height, clickAction, updateHoverStateAction);
+	}
+
+	setEnabled(value){
+		this.clickable.isEnabled = this.isEnabled = value;
+	}
+
+	updateColorScheme(colorScheme){
+		this.colorScheme = colorScheme;
+	}
+
+	render(){
+		if (!this.isEnabled){
+			return;
+		}
+
+		// TODO Use isHovering value
+		let x = xPercentToPixel(this.clickable.xPos);
+		let width = xPercentToPixel(this.clickable.width);
+		let y = yPercentToPixel(this.clickable.yPos);
+		let height = yPercentToPixel(this.clickable.height);
+
+		let centerX = xPercentToPixel(this.clickable.xPos + this.clickable.width / 2)
+		let centerY = xPercentToPixel(this.clickable.yPos + this.clickable.height / 2)
+
+		let textColor = this.colorScheme.board;
+		let backgroundColor = this.colorScheme.background;
+
+		fillRect(x, y, width, height, textColor);
+		fillRect(x + 2, y + 2, width - 4, height - 4, backgroundColor);
+		let fontSize = this.clickable.width < this.clickable.height 
+			? this.clickable.width : this.clickable.height;
+		drawText(this.text, centerX, centerY, textColor, fontSize, "center");
+	}
+}
+
 class Board extends Renderable
 {
-	constructor(columns, rows, winAmount, id, player) 
+	constructor(columns, rows, winAmount, id, iAmPlayer) 
 	{
 		super();
 		this.state = s_gameStates.waitingForPlayer;
@@ -120,8 +217,10 @@ class Board extends Renderable
 		this.winAmoumt = winAmount;
 		this.winningTeam = -1;
 		this.winningSlots = [];
-		this.gameId = id;
-		this.player = player;
+		this.id = id;
+		this.iAmPlayer = iAmPlayer;
+		this.players = [];
+		this.isFinished = false;
 
 		// Visuals
 		this.visualChips = [];
@@ -133,6 +232,9 @@ class Board extends Renderable
 		this.activeSlot = { x: 0, y: 0 };
 		this.currentTeam = 1;
 		this.resized = false;
+		this.continueButton = new Button(false, 45, 92, 10, 4, "Continue", 
+			() =>{ switchToRematchMenu();}, this.colorScheme);
+		g_clickables.push(this.continueButton);
 
 		// Initialize board
 		this.board = [this.columns];
@@ -168,9 +270,15 @@ class Board extends Renderable
 		console.log("Board state: " + state);
 	}
 
+	setPlayers(players){
+		this.players = players;
+	}
+
 	setWinner(winningTeam, winningSlots){
+		this.isFinished = true;
 		this.winningTeam = winningTeam;
 		this.winningSlots = winningSlots;
+		this.continueButton.isEnabled = true;
 	}
 
 	clear()
@@ -310,8 +418,7 @@ class Board extends Renderable
 		this.coords = getRectCenteredCoordFromSize(this.size);
 
 		// Fill board
-		g_canvas.fillStyle = this.colorScheme.board;
-		g_canvas.fillRect(this.coords.x, this.coords.y, this.size.x, this.size.y);
+		fillRect(this.coords.x, this.coords.y, this.size.x, this.size.y, this.colorScheme.board)
 
 		// Get the dynamic radius of the circles
 		let twoPercentX = 2 / 100 * this.size.x;
@@ -345,7 +452,7 @@ class Board extends Renderable
 			fillCircle(activeSlotCoords.x,
 				activeSlotCoords.y,
 				this.radius,
-				this.colorScheme.teams[this.player] + "88");
+				this.colorScheme.teams[this.iAmPlayer] + "88");
 		}
 
 		// Fill chips behind board
@@ -374,19 +481,60 @@ class Board extends Renderable
 		g_canvas.fillRect(0, 0, g_canvasWidth, g_canvasHeight);
 		g_canvas.restore();
 
-		// TODO Change winner animation to function 
-		if (this.winningTeam !== -1){
-			console.log("Winner: " + this.winningTeam);
-			//console.log(winner.slots);
-			for(let i = 0; i < this.winningSlots.length; ++i){
-				let slot = this.winningSlots[i];
-				let slotCoords = this.private_getCircleCoords(slot.col, slot.row);
-				fillCircle(slotCoords.x,
-					slotCoords.y,
-					this.radius * 0.75,
-					"#ffffff88");
+		if (this.state === s_gameStates.playingTurn){
+			let text = "Your turn";
+			let color = this.colorScheme.teams[this.colorScheme.board];
+			this.renderHeadingText(text, color);
+		}
+		
+		// Draw text
+		let usernameSize = 3;
+		let textX = xPercentToPixel(10);
+		let textY = yPercentToPixel(92);
+		drawText(g_username, textX, textY, this.colorScheme.teams[this.iAmPlayer], usernameSize);
+		if (this.state !== s_gameStates.waitingForPlayer){
+			textX = xPercentToPixel(90);
+			textY = yPercentToPixel(92);
+			let otherPlayer = (this.iAmPlayer + 1) % 2;
+			drawText(this.players[otherPlayer], textX, textY, this.colorScheme.teams[otherPlayer], usernameSize, "right");
+		}
+		else {
+			// Show game id while waiting for a player
+			let text = "Game ID: " + this.id;
+			this.renderHeadingText(text, this.colorScheme.board);
+		}
+
+		if (this.isFinished === true){
+			if (this.winningTeam !== -1){
+				for(let i = 0; i < this.winningSlots.length; ++i){
+					let slot = this.winningSlots[i];
+					let slotCoords = this.private_getCircleCoords(slot.col, slot.row);
+					fillCircle(slotCoords.x,
+						slotCoords.y,
+						this.radius * 0.75,
+						"#ffffff88");
+				}
+				let text = this.players[this.winningTeam] + " won the game!";
+				let color = this.colorScheme.teams[this.winningTeam];
+				this.renderHeadingText(text, color);
+			}
+			else {
+				// Game was a draw
+				let text = "Draw!";
+				let color = this.colorScheme.board;
+				this.renderHeadingText(text, color);
 			}
 		}
+		if (this.continueButton.isEnabled){
+			this.continueButton.render();
+		}
+	}
+
+	renderHeadingText(text, color){
+		let textX = xPercentToPixel(50);
+		let textY = yPercentToPixel(10);
+		let fontSize = 5;
+		drawText(text, textX, textY, color, fontSize, "center");
 	}
 }
 
@@ -431,6 +579,10 @@ class GravityChip extends Renderable
 	}
 }
 
+//#endregion
+
+//#region Drawing Functions
+
 function fillCircle(x, y, radius, color)
 {
 	g_canvas.beginPath();
@@ -439,6 +591,29 @@ function fillCircle(x, y, radius, color)
 	g_canvas.fill();
 	g_canvas.closePath();
 }
+
+// Positions in pixels
+function fillRect(x, y, width, height, color){
+	g_canvas.fillStyle = color;
+	g_canvas.fillRect(x, y, width, height);
+}
+
+// Positions in pixels, fontSize in percentage
+function drawText(text, x, y, color, fontSize, align = "left"){
+	g_canvas.fillStyle = color;
+	let size = getFontPixelsFromPercentage(fontSize) + "px";
+	g_canvas.font = size + " Righteous";
+	g_canvas.textAlign = align;
+	g_canvas.fillText(text, x, y);
+}
+
+function getFontPixelsFromPercentage(size){
+	let x = g_canvasWidth * size / 100;
+	let y = g_canvasHeight * size / 100;
+	return (x + y) / 2;
+}
+
+//#endregion
 
 $(function ()
 {
@@ -450,6 +625,10 @@ $(function ()
 	{
 		g_mouse.x = event.x;
 		g_mouse.y = event.y;
+		
+		for(let clickable of g_clickables){
+			clickable.updateHoverState(g_mouse.x, g_mouse.y);
+		}
 	});
 
 	window.addEventListener("resize", (event) =>
@@ -457,8 +636,14 @@ $(function ()
 		resizeGameBoard();
 	});
 
+	window.addEventListener("click", (event) =>{
+		for(let clickable of g_clickables){
+			clickable.clickAt(event.x, event.y);
+		}
+	});
+
 	var i = 0;
-	// Color switching and clearing
+	// Color switching
 	$(document).keydown((event) =>
 	{
 		let colorChanged = false;
@@ -506,12 +691,12 @@ function InitializeSocket(){
 	g_socket.on("gameJoined", (boardData) =>{
 		console.log("Joined game " + boardData.id);
 		switchToGameBoard();
-		let imPlayer = boardData.youArePlayer;
+		let iAmPlayer = boardData.youArePlayer;
 		let columns = boardData.columns;
 		let rows = boardData.rows;
 		let winAmount = boardData.winAmoumt
 		let id = boardData.id;
-		g_board = new Board(columns, rows, winAmount, id, imPlayer);
+		g_board = new Board(columns, rows, winAmount, id, iAmPlayer);
 		g_board.setState(s_gameStates.waitingForPlayer);
 		g_renderables.push(g_board);
 		
@@ -525,8 +710,9 @@ function InitializeSocket(){
 	g_socket.on("gameError", (message) =>{
 		showMessage(message)
 	});
-	g_socket.on("gameStarted", () =>{
+	g_socket.on("gameStarted", (players) =>{
 		console.log("Game started.");
+		g_board.setPlayers(players);
 		g_board.setState(s_gameStates.waitingForTurn);
 	});
 	g_socket.on("turnNotify", () =>{
@@ -581,9 +767,9 @@ function draw()
 {
 	requestAnimationFrame(draw);
 	g_canvas.clearRect(0, 0, g_canvasWidth, g_canvasHeight);
-	for (let i = 0; i < g_renderables.length; ++i)
+	for (let renderable of g_renderables)
 	{
-		g_renderables[i].render();
+		renderable.render();
 	}
 }
 
@@ -614,6 +800,10 @@ function deleteCookie(name) {
 
 //#region Menus
 
+function switchToRematchMenu(){
+	alert("Todo!");
+}
+
 function switchToMainMenu(){
 	removeGameBoard();
 	removeMenu();
@@ -640,7 +830,7 @@ function switchToJoinMenu(){
 	let joinGameButtonId = "joinGame";
 	let backButtonId = "backToMain";
 
-	$("body").append("<div id=\"menuDiv\"><div id=\"menu\"><label class=\"grid-row=1\" for=\"username\">Nickname:<\/label><input class=\"grid-row=2\" type=\"text\" id=\"username\" name=\"username\" autocomplete=\"off\" spellcheck=\"false\"><label class=\"grid-row=3\" for=\"gameId\">Game ID:<\/label><input class=\"grid-row=4\" type=\"text\" id=\"gameId\" name=\"gameId\" autocomplete=\"off\"><button class=\"grid-row=5\" id=\"joinGame\">Join Game<\/button><button class=\"grid-row=6 back-button\" id=\"backToMain\">Back<\/button><\/div></div>");
+	$("body").append("<div id=\"menuDiv\"><div id=\"menu\"><label class=\"grid-row=1\" for=\"username\">Nickname:<\/label><input class=\"grid-row=2\" type=\"text\" id=\"username\" name=\"username\" autocomplete=\"off\" spellcheck=\"false\"><label class=\"grid-row=3\" for=\"gameId\">Game ID (Optional):<\/label><input class=\"grid-row=4\" type=\"text\" id=\"gameId\" name=\"gameId\" autocomplete=\"off\"><button class=\"grid-row=5\" id=\"joinGame\">Join Game<\/button><button class=\"grid-row=6 back-button\" id=\"backToMain\">Back<\/button><\/div></div>");
 
 	// Add current username
 	$("#" + usernameInputId).val(g_username);

@@ -1,4 +1,5 @@
 "use strict";
+//#region Initialization
 
 var express = require("express");
 var app = express();
@@ -8,6 +9,10 @@ var io = require("socket.io")(http);
 var htmlSourceDir = "/HTML";
 var scriptSourceDir = "/Javascript";
 var styleSourceDir = "/CSS";
+
+//#endregion
+
+//#region Resources
 
 app.get("/",
 	(req, res) => {
@@ -23,6 +28,10 @@ app.get("/script",
 	(req, res) => {
 		res.sendFile(__dirname + scriptSourceDir + "/client.js");
 	});
+
+//#endregion
+
+//#region Classes
 
 class Board{
 	constructor() 
@@ -174,9 +183,22 @@ class Board{
 		}
 		return {team:-1, slots:undefined};
 	}
+
+	// Returns true if all slots are taken and there is no winner
+	isDraw(){
+		for (let col = 0; col < this.columns; ++col)
+		{
+			for (let row = 0; row < this.rows; ++row)
+			{
+				if (this.board[col][row] === -1){
+					return false;
+				}
+			}
+		}
+		return true;
+	}
 }
 
-// Region: Classes
 class User{
 	constructor(username, socket){
 		this.username = username;
@@ -209,6 +231,18 @@ class Game{
 		}
 	}
 
+	canBeClosed(){
+		return this.players.length === 0;
+	}
+
+	getPlayers(){
+		let array = [];
+		for(let player of this.players){
+			array.push(player.username);
+		}
+		return array;
+	}
+
 	// Play a turn of the game, returns 1 if successful, -1 if invalid column or team
 	playTurn(user, col){
 		if (!this.isReadyToPlay() || !this.isStarted || this.isFinished){
@@ -225,7 +259,7 @@ class Game{
 		}
 		let slot = this.board.addChip(this.currentTeamTurn, col);
 		if (slot && slot.col !== -1 && slot.row !== -1){
-			console.log("User " + user.isername + " in game " + this.id + " played at col:" + slot.col +", " + slot.row);
+			//console.log("User " + user.isername + " in game " + this.id + " played at col:" + slot.col +", " + slot.row);
 			// Notify of added chip
 			for (let player of this.players){
 				player.socket.emit("boardUpdate", {board: this.board.board, slot:slot, team: this.currentTeamTurn});
@@ -241,6 +275,14 @@ class Game{
 			this.isFinished =  true;
 			for (let player of this.players){
 				player.socket.emit("gameFinished", {winningTeam: winner.team, winningSlots: winner.slots});
+			}
+			return;
+		}
+		// Check for draw
+		if (this.board.isDraw()){
+			this.isFinished =  true;
+			for (let player of this.players){
+				player.socket.emit("gameFinished", {winningTeam: -1, winningSlots: []});
 			}
 			return;
 		}
@@ -287,7 +329,8 @@ class Game{
 		return winner;
 	}
 }
-// End Region: Classes
+
+//#endregion
 
 var games = [];
 var userDictionary = {};
@@ -297,13 +340,14 @@ io.on("connection", (socket) => {
 	socket.on("registerRequest",
 		(data) => {
 			// Username will be null/empty if no username found in cookies
-			var registeredUsername = "";
-			if (data.username) 
+			let registeredUsername = "";
+			let maxNameSize = 20;
+			if (data.username && data.username.length > 0) 
 			{
 				registeredUsername = makeStringAlphaNumeric(data.username);
-				if (registeredUsername.length > 64) 
+				if (registeredUsername.length > maxNameSize) 
 				{
-					registeredUsername = registeredUsername.substring(0, 63);
+					registeredUsername = registeredUsername.substring(0, maxNameSize - 1);
 				}
 			}
 			else 
@@ -321,16 +365,18 @@ io.on("connection", (socket) => {
 			console.log(userDictionary);
 			return;
 		}
+		if (!username || username.length === 0 ){
+			socket.emit("gameError", "Nickname cannot be empty.");
+			return;
+		}
 		user.username = makeStringAlphaNumeric(username);
 		socket.emit("registerResponse", {username: user.username});
 	});
 
 	socket.on("createGame", () => {
 		let user = getUserFromSocket(socket);
-		
 		if (!user){
 			console.log("Exception: user was null");
-			console.log(userDictionary);
 			return;
 		}
 		if (user.game){
@@ -347,31 +393,28 @@ io.on("connection", (socket) => {
 	});
 
 	socket.on("joinGame", (id) => {
-		// If id = -1, join a random game
 		let user = getUserFromSocket(socket);
-		
 		if (!user){
 			console.log("Exception: user was null");
-			console.log(userDictionary);
 			return;
 		}
 		if (user.game){
 			// User is already in a game
 			return;
 		}
-		console.log("User " + user.username + " is joining game " + id);
 		if (id === -1){
 			// Join random game
 			for(let game of games){
 				if(game.needsPlayers()){
 					user.game = game;
 					game.addPlayer(user);
-					socket.emit("gameJoined");
+					console.log("User " + user.username + " is joining game " + game.id);
+					socket.emit("gameJoined", game.getData());
 					if (game.isReadyToPlay()){
 						// Start game
 						console.log("Game " + game.id + " started.");
 						for (user of game.players) {
-							user.socket.emit("gameStarted");
+							user.socket.emit("gameStarted", game.getPlayers());
 							game.start();
 						}
 					}
@@ -385,12 +428,13 @@ io.on("connection", (socket) => {
 			if (game.needsPlayers()){
 				user.game = game;
 				game.addPlayer(user);
+				console.log("User " + user.username + " is joining game " + game.id);
 				socket.emit("gameJoined", game.getData());
 				if (game.isReadyToPlay()){
 					// Start game
 					console.log("Game " + id + " started.");
 					for (user of game.players) {
-						user.socket.emit("gameStarted");
+						user.socket.emit("gameStarted", game.getPlayers());
 						game.start();
 					}
 				}
@@ -406,14 +450,15 @@ io.on("connection", (socket) => {
 
 	socket.on("leaveGame", (id) => {
 		let user = getUserFromSocket(socket);
-		
 		if (!user){
 			console.log("Exception: user was null");
-			console.log(userDictionary);
 			return;
 		}
 		if (user.game) {
 			user.game.removeUser(user);
+			if (user.game.canBeClosed()){
+				removeGame(user.game);
+			}
 			user.game = undefined;
 		}
 
@@ -421,10 +466,8 @@ io.on("connection", (socket) => {
 
 	socket.on("playTurn", (col) =>{
 		let user = getUserFromSocket(socket);
-		
 		if (!user){
 			console.log("Exception: user was null");
-			console.log(userDictionary);
 			return;
 		}
 		let game = user.game;
@@ -439,7 +482,6 @@ io.on("connection", (socket) => {
 		let user = getUserFromSocket(socket);
 		if (!user){
 			console.log("Exception: user was null");
-			console.log(userDictionary);
 			return;
 		}
 		let game = user.game;
@@ -454,15 +496,18 @@ io.on("connection", (socket) => {
 		let user = getUserFromSocket(socket);
 		if (!user){
 			console.log("Exception: user was null");
-			console.log(userDictionary);
 			return;
 		}
 		if (user.game)
 		{
 			user.game.removeUser(user);
+			if (user.game.canBeClosed()){
+				removeGame(user.game);
+			}
 			user.game = undefined;
 		}
-		console.log("Disconnected");
+		unregisterUser(user);
+		console.log("User " + user.username + " disconnected");
 	});
 
 });
@@ -472,9 +517,50 @@ http.listen(3000, function () {
 	console.log("listening on *:3000");
 });
 
+//#region Registry
+
+function getUserFromSocket(socket){
+	return userDictionary[socket.id];
+}
+
+// Register a username with a socket and username color
+function registerUser(username, socket) {
+	userDictionary[socket.id] = new User(username, socket);
+	console.log("Registered user: " + username);
+}
+
+// Un-registers a username from the system
+function unregisterUser(user) {
+	delete userDictionary[user.socket.id];
+	console.log("Unregistered user: " + user.username);
+}
+
+function generateRegistrationKey(){
+	return Math.random() * 1000000;
+}
+
+function removeGame(game){
+	let index = games.indexOf(game);
+	let id = game.id;
+	if (index > -1){
+		games.splice(index, 1);
+		console.log("Closed game " + id);
+	}
+}
+
+//#endregion
+
+//#region Utility
+
+// Removes all non-alphanumeric characters
+function makeStringAlphaNumeric(string) {
+	string = string.replace(/\s+/gm, " ");
+	return string.replace(/[^0-9a-zA-Z ]/gmi, "");
+}
+
 let names = [];
 names.push( ["Artless", "Bootless", "Craven", "Dankish", "Errant", "Fawning", "Frothy", "Goatish", "Jarring", "Mangled", "Puking", "Puny", "Saucy", "Spongey", "Vain", "Warped", "Wayward", "Weedy", "Yeasty"] );
-names.push( ["Bat-fowling", "Beef-witted", "Beetle-headed", "Boil-Brained", "Clay-brained", "Dizzy-eyed", "Orc-skinned", "Flap-mouthed", "Dull-headed", "Rough-hewn", "Rump-fed", "Toad-spotted", "Urchin-snouted"] );
+//names.push( ["Bat-fowling", "Beef-witted", "Beetle-headed", "Boil-Brained", "Clay-brained", "Dizzy-eyed", "Orc-skinned", "Flap-mouthed", "Dull-headed", "Rough-hewn", "Rump-fed", "Toad-spotted", "Urchin-snouted"] );
 names.push( ["Baggage", "Barnacle", "Boar-pig", "Bug-bear", "Bum", "Canker-blossom", "clotpole", "Dewberry", "Dink", "Flap-dragon", "Flax-wench", "Foot-licker", "Giglet", "Haggard", "Harpy", "Hedge-pig", "Horn-beast", "Lewdster", "Lout", "Maggot-pie", "Malt-worm", "Measle", "Minnow", "Nut", "Worm-eater"] );
 
 // From https://jsfiddle.net/ygo5a48r/
@@ -491,25 +577,4 @@ function generateRandomUsername() {
 	return username;
 }
 
-function getUserFromSocket(socket){
-	return userDictionary[socket.id];
-}
-
-// Register a username with a socket and username color
-function registerUser(username, socket) {
-	userDictionary[socket.id] = new User(username, socket);
-	console.log("Registered user: " + username);
-}
-
-// Un-registers a username from the system
-function unregisterUser(socket) {
-	let user = getUserFromSocket(socket);
-	delete userDictionary[socket.id];
-	console.log("Unregistered user: " + user.username);
-}
-
-// Removes all non-alphanumeric characters
-function makeStringAlphaNumeric(string) {
-	string = string.replace(/\s+/gm, " ");
-	return string.replace(/\W/gmi, "");
-}
+//#endregion
