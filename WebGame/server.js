@@ -212,13 +212,15 @@ class User{
 }
 
 class Game{
-	constructor(id){
+	constructor(id, isRematch = false){
 		this.players = [];
 		this.board = new Board();
 		this.id = id;
 		this.isFinished = false;
 		this.isStarted = false;
 		this.currentTeamTurn = 0;
+		this.rematchId = -1;
+		this.isRematch = isRematch;
 	}
 
 	getData(){
@@ -227,7 +229,8 @@ class Game{
 			rows: this.board.rows, 
 			winAmount: this.board.winAmoumt, 
 			id: this.id,
-			youArePlayer: this.players.length - 1
+			youArePlayer: this.players.length - 1,
+			isRematch: this.isRematch
 		}
 	}
 
@@ -332,7 +335,7 @@ class Game{
 
 //#endregion
 
-var games = [];
+var gameDictionary = {};
 var userDictionary = {};
 
 io.on("connection", (socket) => {
@@ -341,14 +344,9 @@ io.on("connection", (socket) => {
 		(data) => {
 			// Username will be null/empty if no username found in cookies
 			let registeredUsername = "";
-			let maxNameSize = 20;
 			if (data.username && data.username.length > 0) 
 			{
-				registeredUsername = makeStringAlphaNumeric(data.username);
-				if (registeredUsername.length > maxNameSize) 
-				{
-					registeredUsername = registeredUsername.substring(0, maxNameSize - 1);
-				}
+				registeredUsername = makeSafeUsername(data.username);
 			}
 			else 
 			{
@@ -369,7 +367,7 @@ io.on("connection", (socket) => {
 			socket.emit("gameError", "Nickname cannot be empty.");
 			return;
 		}
-		user.username = makeStringAlphaNumeric(username);
+		user.username = makeSafeUsername(username);
 		socket.emit("registerResponse", {username: user.username});
 	});
 
@@ -383,13 +381,8 @@ io.on("connection", (socket) => {
 			// User is already in a game
 			return;
 		}
-		let index = games.length;
-		let game = new Game(index);
-		games.push(game);
-		game.addPlayer(user);
-		user.game = games[index];
-		socket.emit("gameJoined", game.getData());
-		console.log("User " + user.username + " created a game. Total games: " + games.length);
+		let createdGame = getNewGame();
+		enterUserIntoGame(user, createdGame);
 	});
 
 	socket.on("joinGame", (id) => {
@@ -404,47 +397,29 @@ io.on("connection", (socket) => {
 		}
 		if (id === -1){
 			// Join random game
-			for(let game of games){
-				if(game.needsPlayers()){
-					user.game = game;
-					game.addPlayer(user);
-					console.log("User " + user.username + " is joining game " + game.id);
-					socket.emit("gameJoined", game.getData());
-					if (game.isReadyToPlay()){
-						// Start game
-						console.log("Game " + game.id + " started.");
-						for (user of game.players) {
-							user.socket.emit("gameStarted", game.getPlayers());
-							game.start();
-						}
-					}
-					return;
-				}
-			}
-			socket.emit("gameError", "No games found to join!");
-		}
-		else if (id >= 0 && id < games.length) {
-			let game = games[id];
-			if (game.needsPlayers()){
-				user.game = game;
-				game.addPlayer(user);
-				console.log("User " + user.username + " is joining game " + game.id);
-				socket.emit("gameJoined", game.getData());
-				if (game.isReadyToPlay()){
-					// Start game
-					console.log("Game " + id + " started.");
-					for (user of game.players) {
-						user.socket.emit("gameStarted", game.getPlayers());
-						game.start();
-					}
-				}
+			let gameToJoin = getRandomGame();
+			if (gameToJoin){
+				enterUserIntoGame(user, gameToJoin);
+				return;
 			}
 			else {
-				socket.emit("gameError", "Game is full!");
+				socket.emit("gameError", "No games found to join!");
+				return;
+			}
+		}
+		else if (id) {
+			let gameToJoin = getGameFromId(id);
+			if (gameToJoin){
+				enterUserIntoGame(user, gameToJoin);
+				return;
+			}
+			else {
+				socket.emit("gameError", "Game with that ID doesn't exist!");
+				return;
 			}
 		}
 		else {
-			socket.emit("gameError", "Game with that id doesn't exist!");
+			socket.emit("gameError", "Game with that ID doesn't exist!");
 		}
 	});
 
@@ -456,9 +431,7 @@ io.on("connection", (socket) => {
 		}
 		if (user.game) {
 			user.game.removeUser(user);
-			if (user.game.canBeClosed()){
-				removeGame(user.game);
-			}
+			removeGameIfNeeded(user.game);
 			user.game = undefined;
 		}
 
@@ -477,19 +450,30 @@ io.on("connection", (socket) => {
 		game.playTurn(user, col);
 	});
 
-	socket.on("rematch", (slot) =>{
-		// TODO
+	socket.on("rematchRequest", (slot) =>{
 		let user = getUserFromSocket(socket);
 		if (!user){
 			console.log("Exception: user was null");
 			return;
 		}
-		let game = user.game;
-
-		if (!game){
+		let oldGame = user.game;
+		let rematchGame = undefined;
+		if (!oldGame){
 			return;
 		}
-
+		// Check for existing rematch game
+		if (oldGame.rematchId !== -1){
+			oldGame.removeUser(user);
+			rematchGame = getGameFromId(oldGame.rematchId);
+			enterUserIntoGame(user, rematchGame);
+		}
+		else{
+			// Create new game
+			rematchGame = getNewGame(true);
+			oldGame.rematchId = rematchGame.id;
+			enterUserIntoGame(user, rematchGame);
+		}
+		removeGameIfNeeded(oldGame);
 	});
 
 	socket.on("disconnect", () => {
@@ -501,9 +485,7 @@ io.on("connection", (socket) => {
 		if (user.game)
 		{
 			user.game.removeUser(user);
-			if (user.game.canBeClosed()){
-				removeGame(user.game);
-			}
+			removeGameIfNeeded(user.game);
 			user.game = undefined;
 		}
 		unregisterUser(user);
@@ -536,21 +518,85 @@ function unregisterUser(user) {
 }
 
 function generateRegistrationKey(){
-	return Math.random() * 1000000;
+	return Math.floor(Math.random() * 1000000000);
 }
 
-function removeGame(game){
-	let index = games.indexOf(game);
-	let id = game.id;
-	if (index > -1){
-		games.splice(index, 1);
-		console.log("Closed game " + id);
+//#endregion
+
+//#region Game Management
+
+// Removes a game if both players have left
+function removeGameIfNeeded(game){
+	if (game.canBeClosed() && game.id in gameDictionary){
+		delete gameDictionary[game.id];
+	}
+}
+
+// Returns undefined if there are no open games
+function getRandomGame(){
+	let gameIds = Object.keys(gameDictionary);
+	for(let id of gameIds){
+		let game = getGameFromId(id);
+		if (game && game.needsPlayers()){
+			return game;
+		}
+	}
+	return undefined;
+}
+
+// Create a new game, add it to the dictionary, and return it.
+function getNewGame(isRematch = false){
+	let id;
+	do {
+		id = Math.floor(Math.random() * 1000);
+	} while(id in gameDictionary);
+	let game = new Game(id, isRematch);
+	gameDictionary[id] = game;
+	console.log("Game " + id + " created.");
+	return game;
+}
+
+function enterUserIntoGame(user, game){
+	if (!game.needsPlayers()){
+		console.log("Tried to enter user " + user.username + " into full game " + game.id);
+		return;
+	}
+	user.game = game;
+	game.addPlayer(user);
+	user.socket.emit("gameJoined", game.getData());
+	console.log("User " + user.username + " joined game " + game.id);
+	if (game.isReadyToPlay()){
+		console.log("Game " + game.id + " started.");
+		for (let player of game.players) {
+			player.socket.emit("gameStarted", game.getPlayers());
+		}
+		game.start();
+	}
+}
+
+// Returns undefined if no game with id exists
+function getGameFromId(gameId){
+	if(gameId in gameDictionary){
+		return gameDictionary[gameId];
+	}
+	else {
+		return undefined;
 	}
 }
 
 //#endregion
 
 //#region Utility
+
+function makeSafeUsername(username){
+	let safe = makeStringAlphaNumeric(username);
+	let maxNameSize = 20;
+	if (safe.length > maxNameSize) 
+	{
+		safe = safe.substring(0, maxNameSize - 1);
+	}
+	return safe;
+}
 
 // Removes all non-alphanumeric characters
 function makeStringAlphaNumeric(string) {

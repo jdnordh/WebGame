@@ -73,6 +73,7 @@ button:hover{
 #menuDiv, #messageDiv{
 	width: auto;
 	height: auto;
+	min-width: 25%;
 	max-width: 50%;
 	max-height: 75%;
 	margin: 0;
@@ -83,11 +84,38 @@ button:hover{
 	transform: translate(-50%, -50%);
 }
 
-#greyOut{
+#continueButton{
+	width: 100%;
+	font-size: 2vw;
+}
+
+#continueDiv{
+	width: auto;
+	height: auto;
+	margin: 0;
+	position: absolute;
+	top: 90%;
+	left: 50%;
+	-ms-transform: translate(-50%, -50%);
+	transform: translate(-50%, -50%);
+}
+
+/* From: https://www.w3schools.com/howto/howto_css_overlay.asp */
+#overlay{
+	position: fixed;
+	display: none;
 	width: 100%;
 	height: 100%;
-	margin: 0;
-	background-color: #44444488;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background-color: #00000080;
+	z-index: 2;
+}
+
+.menuInFrontOfOverlay{
+	z-index: 3;
 }
 
 #menu{

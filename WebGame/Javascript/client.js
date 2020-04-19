@@ -1,7 +1,6 @@
 "use strict";
 
 var pi = 3.14159265358979323;
-var g_menu = undefined;
 var g_canvasHtmlElement = undefined;
 var g_canvas = undefined;
 var g_canvasWidth = 0;
@@ -21,7 +20,6 @@ var s_gameStates = {waitingForPlayer: 0, waitingForTurn: 1, playingTurn: 2, fini
 
 var g_mouse = { x: undefined, y: undefined };
 var g_renderables = [];
-var g_clickables = [];
 
 var s_colorSchemes = [];
 (() =>
@@ -113,102 +111,9 @@ class Renderable
 	}
 }
 
-class Clickable{
-	// Constructor value are in percentage of the window
-	// Click action is the action to perform when clicked
-	// Update hover action takes a bool that specifies if the mouse is hovering over
-	constructor(isEnabled, xPos, yPos, width, height, clickAction, updateHoverStateAction){
-		this.isEnabled = isEnabled;
-		this.xPos = xPos;
-		this.yPos = yPos;
-		this.width = width;
-		this.height = height;
-		this.clickAction = clickAction;
-		this.updateHoverStateAction = updateHoverStateAction;
-	}
-
-	clickAt(mouseX, mouseY){
-		if (!this.isEnabled){
-			return;
-		}
-		let left = xPercentToPixel(this.xPos);
-		let right = xPercentToPixel(this.xPos + this.width);
-		let top = yPercentToPixel(this.yPos);
-		let bottom = yPercentToPixel(this.yPos + this.height);
-
-		if (mouseX > left && mouseX < right &&
-			mouseY > top && mouseY < bottom){
-				this.clickAction();
-		}
-	}
-
-	updateHoverState(mouseX, mouseY){
-		if (!this.isEnabled){
-			return;
-		}
-		let left = xPercentToPixel(this.xPos);
-		let right = xPercentToPixel(this.xPos + this.width);
-		let top = yPercentToPixel(this.yPos);
-		let bottom = yPercentToPixel(this.yPos + this.height);
-
-		let mouseIsOver = mouseX > left && mouseX < right && mouseY > top && mouseY < bottom;
-		this.updateHoverStateAction(mouseIsOver);
-	}
-}
-
-class Button extends Renderable{
-	constructor(isEnabled, xPos, yPos, width, height, text, clickAction, colorScheme)
-	{
-		super();
-		this.isEnabled = isEnabled;
-		this.text = text;
-		this.colorScheme = colorScheme;
-		this.borderColor = "#dddddd";
-		this.backgroundColor = "#dddddd";
-		this.isHovering = false;
-		let self = this;
-		let updateHoverStateAction = (value) =>{
-			self.isHovering = value;
-		};
-		this.clickable = new Clickable(isEnabled, xPos, yPos, width, height, clickAction, updateHoverStateAction);
-	}
-
-	setEnabled(value){
-		this.clickable.isEnabled = this.isEnabled = value;
-	}
-
-	updateColorScheme(colorScheme){
-		this.colorScheme = colorScheme;
-	}
-
-	render(){
-		if (!this.isEnabled){
-			return;
-		}
-
-		// TODO Use isHovering value
-		let x = xPercentToPixel(this.clickable.xPos);
-		let width = xPercentToPixel(this.clickable.width);
-		let y = yPercentToPixel(this.clickable.yPos);
-		let height = yPercentToPixel(this.clickable.height);
-
-		let centerX = xPercentToPixel(this.clickable.xPos + this.clickable.width / 2)
-		let centerY = xPercentToPixel(this.clickable.yPos + this.clickable.height / 2)
-
-		let textColor = this.colorScheme.board;
-		let backgroundColor = this.colorScheme.background;
-
-		fillRect(x, y, width, height, textColor);
-		fillRect(x + 2, y + 2, width - 4, height - 4, backgroundColor);
-		let fontSize = this.clickable.width < this.clickable.height 
-			? this.clickable.width : this.clickable.height;
-		drawText(this.text, centerX, centerY, textColor, fontSize, "center");
-	}
-}
-
 class Board extends Renderable
 {
-	constructor(columns, rows, winAmount, id, iAmPlayer) 
+	constructor(columns, rows, winAmount, id, iAmPlayer, isRematch) 
 	{
 		super();
 		this.state = s_gameStates.waitingForPlayer;
@@ -220,7 +125,7 @@ class Board extends Renderable
 		this.id = id;
 		this.iAmPlayer = iAmPlayer;
 		this.players = [];
-		this.isFinished = false;
+		this.isRematch = isRematch;
 
 		// Visuals
 		this.visualChips = [];
@@ -232,9 +137,6 @@ class Board extends Renderable
 		this.activeSlot = { x: 0, y: 0 };
 		this.currentTeam = 1;
 		this.resized = false;
-		this.continueButton = new Button(false, 45, 92, 10, 4, "Continue", 
-			() =>{ switchToRematchMenu();}, this.colorScheme);
-		g_clickables.push(this.continueButton);
 
 		// Initialize board
 		this.board = [this.columns];
@@ -265,6 +167,11 @@ class Board extends Renderable
 		});
 	}
 
+	getOtherPlayerName(){
+		let index = (this.iAmPlayer + 1) % 2;
+		return this.players[index];
+	}
+
 	setState(state){
 		this.state = state;
 		console.log("Board state: " + state);
@@ -275,10 +182,10 @@ class Board extends Renderable
 	}
 
 	setWinner(winningTeam, winningSlots){
-		this.isFinished = true;
+		this.state = s_gameStates.finished;
 		this.winningTeam = winningTeam;
 		this.winningSlots = winningSlots;
-		this.continueButton.isEnabled = true;
+		showContinueButton();
 	}
 
 	clear()
@@ -481,52 +388,68 @@ class Board extends Renderable
 		g_canvas.fillRect(0, 0, g_canvasWidth, g_canvasHeight);
 		g_canvas.restore();
 
-		if (this.state === s_gameStates.playingTurn){
-			let text = "Your turn";
-			let color = this.colorScheme.teams[this.colorScheme.board];
-			this.renderHeadingText(text, color);
-		}
-		
 		// Draw text
 		let usernameSize = 3;
+		// Client username
 		let textX = xPercentToPixel(10);
 		let textY = yPercentToPixel(92);
 		drawText(g_username, textX, textY, this.colorScheme.teams[this.iAmPlayer], usernameSize);
-		if (this.state !== s_gameStates.waitingForPlayer){
+
+		switch (this.state) {
+			case s_gameStates.playingTurn:
+			{
+				let text = "Your turn";
+				let color = this.colorScheme.teams[this.iAmPlayer];
+				this.renderHeadingText(text, color);
+				break;
+			}
+			case s_gameStates.waitingForPlayer:
+			{
+				if (this.isRematch){
+					// Show waiting for text
+					let text = "Waiting for " + this.getOtherPlayerName();
+					this.renderHeadingText(text, this.colorScheme.board);
+				}
+				else {
+					// Show game id while waiting for a player
+					let text = "Game ID: " + this.id;
+					this.renderHeadingText(text, this.colorScheme.board);
+				}
+				break;
+			}
+			case s_gameStates.finished:
+			{
+				if (this.winningTeam !== -1){
+					for(let i = 0; i < this.winningSlots.length; ++i){
+						let slot = this.winningSlots[i];
+						let slotCoords = this.private_getCircleCoords(slot.col, slot.row);
+						fillCircle(slotCoords.x,
+							slotCoords.y,
+							this.radius * 0.75,
+							"#ffffff88");
+					}
+					let text = this.players[this.winningTeam] + " won the game!";
+					let color = this.colorScheme.teams[this.winningTeam];
+					this.renderHeadingText(text, color);
+				}
+				else {
+					// Game was a draw
+					let text = "Draw!";
+					let color = this.colorScheme.board;
+					this.renderHeadingText(text, color);
+				}
+				break;
+			}
+			default:
+				break;
+		}
+		// Draw othe username if not waiting for them
+		if (this.state !== s_gameStates.waitingForPlayer) {
+			// Opponent username
 			textX = xPercentToPixel(90);
 			textY = yPercentToPixel(92);
 			let otherPlayer = (this.iAmPlayer + 1) % 2;
 			drawText(this.players[otherPlayer], textX, textY, this.colorScheme.teams[otherPlayer], usernameSize, "right");
-		}
-		else {
-			// Show game id while waiting for a player
-			let text = "Game ID: " + this.id;
-			this.renderHeadingText(text, this.colorScheme.board);
-		}
-
-		if (this.isFinished === true){
-			if (this.winningTeam !== -1){
-				for(let i = 0; i < this.winningSlots.length; ++i){
-					let slot = this.winningSlots[i];
-					let slotCoords = this.private_getCircleCoords(slot.col, slot.row);
-					fillCircle(slotCoords.x,
-						slotCoords.y,
-						this.radius * 0.75,
-						"#ffffff88");
-				}
-				let text = this.players[this.winningTeam] + " won the game!";
-				let color = this.colorScheme.teams[this.winningTeam];
-				this.renderHeadingText(text, color);
-			}
-			else {
-				// Game was a draw
-				let text = "Draw!";
-				let color = this.colorScheme.board;
-				this.renderHeadingText(text, color);
-			}
-		}
-		if (this.continueButton.isEnabled){
-			this.continueButton.render();
 		}
 	}
 
@@ -625,21 +548,11 @@ $(function ()
 	{
 		g_mouse.x = event.x;
 		g_mouse.y = event.y;
-		
-		for(let clickable of g_clickables){
-			clickable.updateHoverState(g_mouse.x, g_mouse.y);
-		}
 	});
 
 	window.addEventListener("resize", (event) =>
 	{
 		resizeGameBoard();
-	});
-
-	window.addEventListener("click", (event) =>{
-		for(let clickable of g_clickables){
-			clickable.clickAt(event.x, event.y);
-		}
 	});
 
 	var i = 0;
@@ -658,7 +571,6 @@ $(function ()
 				--i;
 				if (i < 0)
 				{
-					g_menu.add();
 					i = s_colorSchemes.length - 1;
 				}
 				colorChanged = true;
@@ -669,7 +581,6 @@ $(function ()
 			g_board.changeColorScheme(i);
 		}
 	});
-
 	draw();
 });
 
@@ -696,8 +607,14 @@ function InitializeSocket(){
 		let rows = boardData.rows;
 		let winAmount = boardData.winAmoumt
 		let id = boardData.id;
-		g_board = new Board(columns, rows, winAmount, id, iAmPlayer);
+		// If game is a rematch, save the other's username
+		let oldBoard = g_board;
+		g_board = new Board(columns, rows, winAmount, id, iAmPlayer, boardData.isRematch);
+		if (oldBoard && boardData.isRematch){
+			g_board.setPlayers(oldBoard.players);
+		}
 		g_board.setState(s_gameStates.waitingForPlayer);
+		g_renderables = [];
 		g_renderables.push(g_board);
 		
 	});
@@ -801,10 +718,23 @@ function deleteCookie(name) {
 //#region Menus
 
 function switchToRematchMenu(){
-	alert("Todo!");
+	setOverlayVisibility(true);
+	let homeButtonId = "homeButton";
+	let rematchButtonId = "rematchButton";
+	$("body").append("<div class=\"menuInFrontOfOverlay\" id=\"menuDiv\"><div id=\"menu\"><button class=\"grid-row=1\" id=\"" + homeButtonId + "\">Home</button><button class=\"grid-row=2\" id=\"" + rematchButtonId + "\">Rematch</button></div></div>");
+
+	$("#" + homeButtonId).click((e) =>{
+		switchToMainMenu();
+	});
+	$("#" + rematchButtonId).click((e) =>{
+		removeMenu();
+		requestRematch();
+	});
 }
 
 function switchToMainMenu(){
+	appReset();
+	setOverlayVisibility(false);
 	removeGameBoard();
 	removeMenu();
 	let joinButtonId = "joinMenu";
@@ -822,6 +752,7 @@ function switchToMainMenu(){
 }
 
 function switchToJoinMenu(){
+	setOverlayVisibility(false);
 	removeGameBoard();
 	removeMenu();
 
@@ -850,6 +781,7 @@ function switchToJoinMenu(){
 }
 
 function switchToCreateMenu(){
+	setOverlayVisibility(false);
 	removeGameBoard();
 	removeMenu();
 	let usernameInputId = "username";
@@ -871,22 +803,28 @@ function switchToCreateMenu(){
 	});
 }
 
+function showContinueButton(){
+	let continueButtonId = "continueButton";
+	let continueId = "continueDiv";
+	$("body").append("<div id=\"" + continueId + "\"><button id=\"" + continueButtonId + "\">Continue</button></div></div>");
+
+	$("#" + continueButtonId).click((e) =>{
+		switchToRematchMenu();
+	});
+}
+
 function showMessage(message){
 	let okayButtonId = "okay";
 	let messageId = "messageDiv";
-	let greyOutId = "greyOut"
-	$("body").append("<div id=\"" + greyOutId + "\"></div>");
-	$("body").append("<div id=\"" + messageId + "\"><div id=\"error\"><label class=\"grid-row=1\">" + message + "<\/label><button class=\"grid-row=2\" id=\"okay\">Okay<\/button><\/div></div>");
+	setOverlayVisibility(true);
+	$("body").append("<div class=\"menuInFrontOfOverlay\" id=\"" + messageId + "\"><div id=\"error\"><label class=\"grid-row=1\">" + message + "<\/label><button class=\"grid-row=2\" id=\"okay\">Okay<\/button><\/div></div>");
 
 	$("#" + okayButtonId).click((e) =>{
-		let greyOut = $("#" + greyOutId);
-		if (greyOut){
-			greyOut.remove();
-		}
 		let message = $("#" + messageId);
 		if (message){
 			message.remove();
 		}
+		setOverlayVisibility(false);
 	});
 }
 
@@ -906,9 +844,24 @@ function removeGameBoard(){
 }
 
 function removeMenu(){
-	g_menu = $("#menuDiv");
-	if (g_menu){
-		g_menu.remove();
+	let menu = $("#menuDiv");
+	if (menu){
+		menu.remove();
+	}
+	let continueDiv = $("#continueDiv");
+	if (continueDiv){
+		continueDiv.remove();
+	}
+	setOverlayVisibility(false);
+}
+
+function setOverlayVisibility(visible){
+	let div = $("#overlay");
+	if (visible){
+		div.show();
+	}
+	else {
+		div.hide();
 	}
 }
 
@@ -939,3 +892,13 @@ function makeStringNumeric(string) {
 	}
 	return string.replace(/[^0-9]/gmi, "");
 }
+
+function appReset(){
+	InitizlizeCanvas();
+	setOverlayVisibility(false);
+	removeMenu();
+	removeGameBoard();
+	g_board = undefined;
+	g_renderables = [];
+}
+
