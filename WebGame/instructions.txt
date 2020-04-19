@@ -3,6 +3,7 @@ Hello! Welcome to my SENG 533 individual final project.
 I have created the game of Connect Four. 
 
 To Play:
+The server listens on port 3000, so navigate to the IP of the server computer using port 3000.
 Nickname - your displayed nickname, remembered in cookies.
 Create a game - makes a new game that another player can join by entering the game ID listed on the screen.
 Join a game - join a specific game by entering the game ID, or join a random game by leaving blank.
