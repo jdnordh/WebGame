@@ -221,6 +221,7 @@ class Game{
 		this.currentTeamTurn = 0;
 		this.rematchId = -1;
 		this.isRematch = isRematch;
+		this.isAcceptingPlayers = true;
 	}
 
 	getData(){
@@ -316,10 +317,13 @@ class Game{
 			return;
 		}
 		this.players.push(user);
+		if (this.players.length === 2){
+			this.isAcceptingPlayers = false;
+		}
 	}
 
-	needsPlayers(){
-		return this.players.length < 2;
+	isAcceptingPlayers(){
+		return this.isAcceptingPlayers;
 	}
 
 	isReadyToPlay(){
@@ -348,51 +352,44 @@ io.on("connection", (socket) => {
 			{
 				registeredUsername = makeSafeUsername(data.username);
 			}
-			else 
-			{
+			// If username was null, or the safe username is empty, create a random one
+			if (registeredUsername.length === 0){
 				registeredUsername = generateRandomUsername();
 			}
 			registerUser(registeredUsername, socket);
 			socket.emit("registerResponse", {username: registeredUsername});
 		});
 
-	socket.on("usernameUpdate", (username) => {
+	// This is called before entering a game to verify the username
+	socket.on("usernameUpdate", (data) => {
 		let user = getUserFromSocket(socket);
 		if (!user){
-			console.log("Exception: user was null");
-			console.log(userDictionary);
+			console.log("Exception: Unregistered user tried to connect.");
 			return;
 		}
+		let username = data.username;
 		if (!username || username.length === 0 ){
-			socket.emit("gameError", "Nickname cannot be empty.");
+			sendGameError(socket, "Nickname cannot be empty.");
 			return;
 		}
 		user.username = makeSafeUsername(username);
-		socket.emit("registerResponse", {username: user.username});
+		if (!user.username || user.username.length === 0){
+			sendGameError(socket, "Nickname should include alphanumeric characters.");
+			return;
+		}
+		console.log("Updated user " + user.username);
+		socket.emit("usernameUpdateResponse", {username: user.username, gameToJoinId: data.gameToJoinId});
 	});
 
-	socket.on("createGame", () => {
+	socket.on("enterGame", (id) => {
 		let user = getUserFromSocket(socket);
 		if (!user){
-			console.log("Exception: user was null");
+			console.log("Exception: Unregistered user tried to connect.");
 			return;
 		}
 		if (user.game){
 			// User is already in a game
-			return;
-		}
-		let createdGame = getNewGame();
-		enterUserIntoGame(user, createdGame);
-	});
-
-	socket.on("joinGame", (id) => {
-		let user = getUserFromSocket(socket);
-		if (!user){
-			console.log("Exception: user was null");
-			return;
-		}
-		if (user.game){
-			// User is already in a game
+			console.log(user.username + " is in game " + user.game.is + " and is trying to enter game " + id);
 			return;
 		}
 		if (id === -1){
@@ -403,57 +400,51 @@ io.on("connection", (socket) => {
 				return;
 			}
 			else {
-				socket.emit("gameError", "No games found to join!");
+				sendGameError(socket, "No games found to join!");
 				return;
 			}
 		}
+		else if (id === -2){
+			// Create game
+			let createdGame = getNewGame();
+			enterUserIntoGame(user, createdGame);
+			return;
+		}
 		else if (id) {
+			// Try to join game with id
 			let gameToJoin = getGameFromId(id);
 			if (gameToJoin){
 				enterUserIntoGame(user, gameToJoin);
 				return;
 			}
 			else {
-				socket.emit("gameError", "Game with that ID doesn't exist!");
+				sendGameError(socket, "Game with that ID doesn't exist!");
 				return;
 			}
 		}
 		else {
-			socket.emit("gameError", "Game with that ID doesn't exist!");
+			sendGameError(socket, "Game with that ID doesn't exist!");
 		}
-	});
-
-	socket.on("leaveGame", (id) => {
-		let user = getUserFromSocket(socket);
-		if (!user){
-			console.log("Exception: user was null");
-			return;
-		}
-		if (user.game) {
-			user.game.removeUser(user);
-			removeGameIfNeeded(user.game);
-			user.game = undefined;
-		}
-
 	});
 
 	socket.on("playTurn", (col) =>{
 		let user = getUserFromSocket(socket);
 		if (!user){
-			console.log("Exception: user was null");
+			console.log("Exception: Unregistered user tried to connect.");
 			return;
 		}
 		let game = user.game;
 		if (!game){
+			console.log( user.username + " tried to play a turn while not in a game.");
 			return;
 		}
 		game.playTurn(user, col);
 	});
 
-	socket.on("rematchRequest", (slot) =>{
+	socket.on("rematchRequest", () =>{
 		let user = getUserFromSocket(socket);
 		if (!user){
-			console.log("Exception: user was null");
+			console.log("Exception: Unregistered user tried to connect.");
 			return;
 		}
 		let oldGame = user.game;
@@ -463,33 +454,41 @@ io.on("connection", (socket) => {
 		}
 		// Check for existing rematch game
 		if (oldGame.rematchId !== -1){
-			oldGame.removeUser(user);
+			removeUserTheirGame(user, true);
 			rematchGame = getGameFromId(oldGame.rematchId);
 			enterUserIntoGame(user, rematchGame);
 		}
 		else{
 			// Create new game
+			removeUserTheirGame(user, true);
 			rematchGame = getNewGame(true);
 			oldGame.rematchId = rematchGame.id;
 			enterUserIntoGame(user, rematchGame);
 		}
-		removeGameIfNeeded(oldGame);
+	});
+
+	socket.on("leaveGame", (id) => {
+		let user = getUserFromSocket(socket);
+		if (!user){
+			console.log("Exception: Unregistered user tried to connect.");
+			return;
+		}
+		if (user.game) {
+			removeUserTheirGame(user);
+		}
 	});
 
 	socket.on("disconnect", () => {
 		let user = getUserFromSocket(socket);
 		if (!user){
-			console.log("Exception: user was null");
+			console.log("Exception: Unregistered user tried to connect.");
 			return;
 		}
 		if (user.game)
 		{
-			user.game.removeUser(user);
-			removeGameIfNeeded(user.game);
-			user.game = undefined;
+			removeUserTheirGame(user);
 		}
 		unregisterUser(user);
-		console.log("User " + user.username + " disconnected");
 	});
 
 });
@@ -517,18 +516,22 @@ function unregisterUser(user) {
 	console.log("Unregistered user: " + user.username);
 }
 
-function generateRegistrationKey(){
-	return Math.floor(Math.random() * 1000000000);
-}
-
 //#endregion
 
 //#region Game Management
 
+// Send a user an error message
+// goHome: If true, then the user will be directed to the home page, else can continue
+function sendGameError(socket, message, goHome = false){
+	socket.emit("gameError", {message: message, goHome: goHome});
+}
+
 // Removes a game if both players have left
 function removeGameIfNeeded(game){
 	if (game.canBeClosed() && game.id in gameDictionary){
-		delete gameDictionary[game.id];
+		let id = game.id;
+		delete gameDictionary[id];
+		console.log("Deleted game " + id);
 	}
 }
 
@@ -537,7 +540,7 @@ function getRandomGame(){
 	let gameIds = Object.keys(gameDictionary);
 	for(let id of gameIds){
 		let game = getGameFromId(id);
-		if (game && game.needsPlayers()){
+		if (game && game.isAcceptingPlayers()){
 			return game;
 		}
 	}
@@ -556,9 +559,10 @@ function getNewGame(isRematch = false){
 	return game;
 }
 
+// Enters a user into a game, notifies them, and starts the game if needed
 function enterUserIntoGame(user, game){
-	if (!game.needsPlayers()){
-		console.log("Tried to enter user " + user.username + " into full game " + game.id);
+	if (!game.isAcceptingPlayers()){
+		console.log("Tried to enter user " + user.username + " into a closed game " + game.id);
 		return;
 	}
 	user.game = game;
@@ -572,6 +576,29 @@ function enterUserIntoGame(user, game){
 		}
 		game.start();
 	}
+}
+
+// Remove a user from a game and notify opponent if needed
+function removeUserTheirGame(user, isEnteringRematch = false){
+	let game = user.game;
+	if (game){
+		game.removeUser(user);
+		user.game = undefined;
+
+		if (!isEnteringRematch){
+			if (game.rematchId !== -1){
+				// Another user is waiting for this user, so notify them
+				let rematchGame = getGameFromId(game.rematchId);
+				for(let player of rematchGame.players){
+					sendGameError(player.socket, user.username + " has left the game.", true);
+				}
+			}
+			for(let player of game.players){
+				sendGameError(player.socket, user.username + " has left the game.", true);
+			}
+		}
+	}
+	removeGameIfNeeded(game);
 }
 
 // Returns undefined if no game with id exists
@@ -598,9 +625,10 @@ function makeSafeUsername(username){
 	return safe;
 }
 
-// Removes all non-alphanumeric characters
+// Removes all non-alphanumeric characters and trim
 function makeStringAlphaNumeric(string) {
 	string = string.replace(/\s+/gm, " ");
+	string = string.trim();
 	return string.replace(/[^0-9a-zA-Z ]/gmi, "");
 }
 

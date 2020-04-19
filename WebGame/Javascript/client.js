@@ -1,5 +1,7 @@
 "use strict";
 
+//#region App Variables
+
 var pi = 3.14159265358979323;
 var g_canvasHtmlElement = undefined;
 var g_canvas = undefined;
@@ -8,6 +10,7 @@ var g_canvasHeight = 0;
 var g_socket = undefined;
 var g_username = undefined;
 var g_board = undefined;
+var g_disablePlay = false;
 
 var s_clientStates = {mainMenu: 0, inGame:1}
 var g_clientState = s_clientStates.inGame;
@@ -27,79 +30,43 @@ var s_colorSchemes = [];
 	s_colorSchemes.push({
 		teams: ["#00bcd4", "#dd2c00"],
 		board: "#d1cebd",
-		boardHighlight: "#f1decd",
 		background: "#ffffff"
 	});
 	s_colorSchemes.push({
 		teams: ["#d63447", "#f57b51"],
 		board: "#d1cebd",
-		boardHighlight: "#f1decd",
 		background: "#ffffff"
 	});
 	s_colorSchemes.push({
-		teams: ["#ef962d", "#9c5518"],
+		teams: ["#ef962d", "#00bdaa"],
 		board: "#faf4f4",
-		boardHighlight: "#f1decd",
 		background: "#444444"
 	});
 	s_colorSchemes.push({
 		teams: ["#ffa34d", "#f67575"],
 		board: "#1eb2a6",
-		boardHighlight: "#f1decd",
 		background: "#d4f8e8"
 	});
 	s_colorSchemes.push({
-		teams: ["#5b8c85", "#434e52"],
+		teams: ["#5b8c85", "#438e52"],
 		board: "#b0a160",
-		boardHighlight: "#f1decd",
 		background: "#ecce6d"
 	});
 	s_colorSchemes.push({
 		teams: ["#7fa998", "#ff8364"],
 		board: "#5b5656",
-		boardHighlight: "#f1decd",
 		background: "#f5eaea"
+	});
+	s_colorSchemes.push({
+		teams: ["#43d8c9", "#95389e"],
+		board: "#303333",
+		background: "#f7f7f7"
 	});
 })();
 
-// Get the coord that a rect should be at to be in the center
-function getRectCenteredCoordFromSize(size)
-{
-	let xCoord = (g_canvasWidth / 2) - (size.x / 2);
-	let yCoord = (g_canvasHeight / 2) - (size.y / 2);
-	return { x: xCoord, y: yCoord };
-}
+var g_colorSchemeIndex = 0;
 
-// Get the max size given a maximum percentage and a (height / width) aspect ratio
-function getSizeGivenAspectRatio(maxPercentX, maxPercentY, aspectRatio)
-{
-	// The goal is to either get to max x or max y, then accomodate the other
-	let pixelX = xPercentToPixel(maxPercentX);
-	let pixelY = yPercentToPixel(maxPercentY);
-
-	let currentRatio = pixelY / pixelX;
-	if (currentRatio < aspectRatio)
-	{
-		// Keep pixelY where it is, shrink pixelX according to ratio
-		pixelX = pixelY / aspectRatio;
-	}
-	else if (currentRatio > aspectRatio)
-	{
-		// Keep pixelX where it is, shrink pixelY according to ratio
-		pixelY = pixelX * aspectRatio;
-	}
-	return { x: pixelX, y: pixelY };
-}
-
-function yPercentToPixel(percentY)
-{
-	return percentY / 100 * g_canvasHeight;
-}
-
-function xPercentToPixel(percentX)
-{
-	return percentX / 100 * g_canvasWidth;
-}
+//#endregion
 
 //#region Classes
 
@@ -130,7 +97,8 @@ class Board extends Renderable
 		// Visuals
 		this.visualChips = [];
 		this.radius = 1;
-		this.colorScheme = s_colorSchemes[0];
+		this.colorSchemeIndex = g_colorSchemeIndex;
+		this.colorScheme = s_colorSchemes[this.colorSchemeIndex];
 		this.size = { x: 1, y: 1 };
 		this.coords = { x: 0, y: 0 };
 		this.activeColumn = -1;
@@ -292,7 +260,7 @@ class Board extends Renderable
 			coords.y + this.radius, // Add the radius, because the bottom point is the contact point
 			slot.col,
 			slot.row,
-			this.radius,
+			this.radius + 1, // Make the chips very sligtly bigger than the slot
 			this.colorScheme.teams[team]);
 		this.visualChips.push(chip);
 	}
@@ -321,6 +289,10 @@ class Board extends Renderable
 
 	render()
 	{
+		if (this.colorSchemeIndex !== g_colorSchemeIndex){
+			this.changeColorScheme(g_colorSchemeIndex);
+		}
+
 		this.size = getSizeGivenAspectRatio(80, 70, 6 / 7);
 		this.coords = getRectCenteredCoordFromSize(this.size);
 
@@ -350,6 +322,10 @@ class Board extends Renderable
 		}
 		g_canvas.restore();
 
+		// Fill chips behind board
+		g_canvas.save();
+		g_canvas.globalCompositeOperation = "destination-over";
+
 		// Fill active slot
 		let slot = this.activeSlot;
 		let hasActiveSlot = slot.col !== -1 && slot.row !== -1;
@@ -358,17 +334,14 @@ class Board extends Renderable
 			let activeSlotCoords = this.private_getCircleCoords(slot.col, slot.row);
 			fillCircle(activeSlotCoords.x,
 				activeSlotCoords.y,
-				this.radius,
+				this.radius + 1, // Make the chip slightly bigger than the slot
 				this.colorScheme.teams[this.iAmPlayer] + "88");
 		}
 
-		// Fill chips behind board
-		g_canvas.save();
-		g_canvas.globalCompositeOperation = "destination-over";
 		for (let i = 0; i < this.visualChips.length; ++i)
 		{
 			let chip = this.visualChips[i];
-			chip.radius = this.radius;
+			chip.radius = this.radius + 1; // Make the chip slightly bigger than the slot
 			if (chip.landed || this.resized)
 			{
 				let chipCoords = this.private_getCircleCoords(chip.col, chip.row);
@@ -506,6 +479,45 @@ class GravityChip extends Renderable
 
 //#region Drawing Functions
 
+// Get the coord that a rect should be at to be in the center
+function getRectCenteredCoordFromSize(size)
+{
+	let xCoord = (g_canvasWidth / 2) - (size.x / 2);
+	let yCoord = (g_canvasHeight / 2) - (size.y / 2);
+	return { x: xCoord, y: yCoord };
+}
+
+// Get the max size given a maximum percentage and a (height / width) aspect ratio
+function getSizeGivenAspectRatio(maxPercentX, maxPercentY, aspectRatio)
+{
+	// The goal is to either get to max x or max y, then accomodate the other
+	let pixelX = xPercentToPixel(maxPercentX);
+	let pixelY = yPercentToPixel(maxPercentY);
+
+	let currentRatio = pixelY / pixelX;
+	if (currentRatio < aspectRatio)
+	{
+		// Keep pixelY where it is, shrink pixelX according to ratio
+		pixelX = pixelY / aspectRatio;
+	}
+	else if (currentRatio > aspectRatio)
+	{
+		// Keep pixelX where it is, shrink pixelY according to ratio
+		pixelY = pixelX * aspectRatio;
+	}
+	return { x: pixelX, y: pixelY };
+}
+
+function yPercentToPixel(percentY)
+{
+	return percentY / 100 * g_canvasHeight;
+}
+
+function xPercentToPixel(percentX)
+{
+	return percentX / 100 * g_canvasWidth;
+}
+
 function fillCircle(x, y, radius, color)
 {
 	g_canvas.beginPath();
@@ -555,50 +567,36 @@ $(function ()
 		resizeGameBoard();
 	});
 
-	var i = 0;
-	// Color switching
-	$(document).keydown((event) =>
-	{
-		let colorChanged = false;
-		switch (event.keyCode)
-		{
-			case 38:
-				++i;
-				i %= s_colorSchemes.length;
-				colorChanged = true;
-				break;
-			case 40:
-				--i;
-				if (i < 0)
-				{
-					i = s_colorSchemes.length - 1;
-				}
-				colorChanged = true;
-				break;
-		}
-		if (colorChanged)
-		{
-			g_board.changeColorScheme(i);
-		}
-	});
+	// Load color scheme from cookies
+	g_colorSchemeIndex = getCookieValue(s_cookies.colorScheme);
+	if (!g_colorSchemeIndex || g_colorSchemeIndex < 0 || g_colorSchemeIndex >= s_colorSchemes.length){
+		g_colorSchemeIndex = 0;
+	}
 	draw();
 });
 
-//#region Server Coms
+//#region Socket incoming
 
 function InitializeSocket(){
 	g_socket = io();
 	g_username = getCookieValue(s_cookies.username);
 	console.log("Read username cookie: " + g_username);
 
-	g_socket.on("registerResponse",
-		(data) => {
-			deleteCookie(s_cookies.username);
-			console.log("Removed username cookie");
-			g_username = data.username;
-			createCookie(s_cookies.username, g_username, 30);
-			console.log("Added username cookie: " + g_username);
-		});
+	g_socket.on("registerResponse",	(data) => {
+		deleteCookie(s_cookies.username);
+		console.log("Removed username cookie");
+		g_username = data.username;
+		createCookie(s_cookies.username, g_username, 30);
+		console.log("Added username cookie: " + g_username);
+	});
+	g_socket.on("usernameUpdateResponse", (data) =>{
+		deleteCookie(s_cookies.username);
+		console.log("Removed username cookie");
+		g_username = data.username;
+		createCookie(s_cookies.username, g_username, 30);
+		console.log("Added username cookie: " + g_username);
+		enterGame(data.gameToJoinId);
+	});
 	g_socket.on("gameJoined", (boardData) =>{
 		console.log("Joined game " + boardData.id);
 		switchToGameBoard();
@@ -611,12 +609,18 @@ function InitializeSocket(){
 		let oldBoard = g_board;
 		g_board = new Board(columns, rows, winAmount, id, iAmPlayer, boardData.isRematch);
 		if (oldBoard && boardData.isRematch){
-			g_board.setPlayers(oldBoard.players);
+			// Check if the player order switches based on who created the game
+			let oldIAmPlayer = oldBoard.iAmPlayer;
+			if (oldIAmPlayer === iAmPlayer){
+				g_board.setPlayers(oldBoard.players);
+			}
+			else{
+				g_board.setPlayers(oldBoard.players.reverse());
+			}
 		}
 		g_board.setState(s_gameStates.waitingForPlayer);
 		g_renderables = [];
 		g_renderables.push(g_board);
-		
 	});
 	g_socket.on("boardUpdate", (boardData) =>{
 		let board = boardData.board;
@@ -624,8 +628,8 @@ function InitializeSocket(){
 		let slot = boardData.slot;
 		g_board.updateBoard(board, team, slot);
 	});
-	g_socket.on("gameError", (message) =>{
-		showMessage(message)
+	g_socket.on("gameError", (error) =>{
+		showMessage(error.message, error.goHome);
 	});
 	g_socket.on("gameStarted", (players) =>{
 		console.log("Game started.");
@@ -653,6 +657,10 @@ function InitializeSocket(){
 	switchToMainMenu();
 }
 
+//#endregion
+
+//#region Socket outgoing
+
 function requestUsernameUpdate(username){
 	g_socket.emit("usernameUpdate", username);
 }
@@ -661,23 +669,35 @@ function leaveGame(){
 	g_socket.emit("leaveGame");
 }
 
+function playTurn(col){
+	if (g_disablePlay){
+		return;
+	}
+	g_socket.emit("playTurn", col);
+}
+
 function requestRematch(){
 	g_socket.emit("rematchRequest");
 }
 
-function joinGame(id = -1){
-	g_socket.emit("joinGame", id);
+// nickname: the name to request
+// id: the game id to join. -1 to join a random game, -2 to create a game.
+function joinGame(nickname, id){
+	g_socket.emit("usernameUpdate", {username: nickname, gameToJoinId: id});
 }
 
-function playTurn(col){
-	g_socket.emit("playTurn", col);
+function createGame(nickname){
+	joinGame(nickname, -2);
 }
 
-function createGame(){
-	g_socket.emit("createGame");
+function enterGame(gameId){
+	g_socket.emit("enterGame", gameId);
 }
+
 
 //#endregion
+
+//#region Animation
 
 // Animation function to run every frame
 function draw()
@@ -689,6 +709,8 @@ function draw()
 		renderable.render();
 	}
 }
+
+//#endregion
 
 //#region Cookies
 
@@ -724,6 +746,7 @@ function switchToRematchMenu(){
 	$("body").append("<div class=\"menuInFrontOfOverlay\" id=\"menuDiv\"><div id=\"menu\"><button class=\"grid-row=1\" id=\"" + homeButtonId + "\">Home</button><button class=\"grid-row=2\" id=\"" + rematchButtonId + "\">Rematch</button></div></div>");
 
 	$("#" + homeButtonId).click((e) =>{
+		leaveGame();
 		switchToMainMenu();
 	});
 	$("#" + rematchButtonId).click((e) =>{
@@ -768,12 +791,12 @@ function switchToJoinMenu(){
 
 	// Add click handlers
 	$("#" + joinGameButtonId).click((e) =>{
-		requestUsernameUpdate($("#" + usernameInputId).val());
+		let nickname = ($("#" + usernameInputId).val());
 		let gameId = makeStringNumeric($("#" + gameIdId).val());
 		if (!gameId){
 			gameId = -1;
 		}
-		joinGame(gameId);
+		joinGame(nickname, gameId);
 	});
 	$("#" + backButtonId).click((e) =>{
 		switchToMainMenu();
@@ -795,52 +818,34 @@ function switchToCreateMenu(){
 
 	// Add click handlers
 	$("#" + createGameButtonId).click((e) =>{
-		requestUsernameUpdate($("#" + usernameInputId).val());
-		createGame();
+		let nickname = ($("#" + usernameInputId).val());
+		createGame(nickname);
 	});
 	$("#" + backButtonId).click((e) =>{
 		switchToMainMenu();
 	});
 }
 
-function showContinueButton(){
-	let continueButtonId = "continueButton";
-	let continueId = "continueDiv";
-	$("body").append("<div id=\"" + continueId + "\"><button id=\"" + continueButtonId + "\">Continue</button></div></div>");
-
-	$("#" + continueButtonId).click((e) =>{
-		switchToRematchMenu();
-	});
-}
-
-function showMessage(message){
-	let okayButtonId = "okay";
+function showMessage(message, goHome){
+	let buttonText = goHome ? "Home" : "Okay";
+	let buttonId = "messageButton";
 	let messageId = "messageDiv";
 	setOverlayVisibility(true);
-	$("body").append("<div class=\"menuInFrontOfOverlay\" id=\"" + messageId + "\"><div id=\"error\"><label class=\"grid-row=1\">" + message + "<\/label><button class=\"grid-row=2\" id=\"okay\">Okay<\/button><\/div></div>");
+	g_disablePlay = true;
+	$("body").append("<div class=\"menuInFrontOfOverlay\" id=\"" + messageId + "\"><div id=\"error\"><label class=\"grid-row=1\">" + message + "<\/label><button class=\"grid-row=2\" id=\"" + buttonId + "\">" + buttonText + "<\/button><\/div></div>");
 
-	$("#" + okayButtonId).click((e) =>{
+	$("#" + buttonId).click((e) =>{
 		let message = $("#" + messageId);
 		if (message){
 			message.remove();
 		}
 		setOverlayVisibility(false);
+		if (goHome){
+			leaveGame();
+			switchToMainMenu();
+		}
+		g_disablePlay = false;
 	});
-}
-
-function resizeGameBoard(){
-	if (g_clientState === s_clientStates.inGame){
-		g_canvasWidth = g_canvasHtmlElement.width = window.innerWidth;
-		g_canvasHeight = g_canvasHtmlElement.height = window.innerHeight;
-	}
-}
-
-function removeGameBoard(){
-	if (g_canvasHtmlElement){
-		// Change canvas size
-		g_canvasWidth = g_canvasHtmlElement.width = 0;
-		g_canvasHeight = g_canvasHtmlElement.height = 0;
-	}
 }
 
 function removeMenu(){
@@ -851,6 +856,14 @@ function removeMenu(){
 	let continueDiv = $("#continueDiv");
 	if (continueDiv){
 		continueDiv.remove();
+	}
+	let leftColorSchemeButton = $("#leftColorSchemeButton");
+	if (leftColorSchemeButton){
+		leftColorSchemeButton.remove();
+	}
+	let rightColorSchemeButton = $("#rightColorSchemeButton");
+	if (rightColorSchemeButton){
+		rightColorSchemeButton.remove();
 	}
 	setOverlayVisibility(false);
 }
@@ -876,11 +889,78 @@ function InitizlizeCanvas(){
 	g_canvas = g_canvasHtmlElement.getContext("2d");
 }
 
+//#endregion
+
+//#region Game board screens
+
 function switchToGameBoard(){
 	removeMenu();
+	showColorSchemeButtons();
 	// Change canvas size
 	g_canvasWidth = g_canvasHtmlElement.width = window.innerWidth;
 	g_canvasHeight = g_canvasHtmlElement.height = window.innerHeight;
+}
+
+function resizeGameBoard(){
+	if (g_clientState === s_clientStates.inGame){
+		g_canvasWidth = g_canvasHtmlElement.width = window.innerWidth;
+		g_canvasHeight = g_canvasHtmlElement.height = window.innerHeight;
+	}
+}
+
+function removeGameBoard(){
+	if (g_canvasHtmlElement){
+		// Change canvas size
+		g_canvasWidth = g_canvasHtmlElement.width = 0;
+		g_canvasHeight = g_canvasHtmlElement.height = 0;
+	}
+}
+
+function showContinueButton(){
+	let continueButtonId = "continueButton";
+	let continueId = "continueDiv";
+	$("body").append("<div id=\"" + continueId + "\"><button id=\"" + continueButtonId + "\">Continue</button></div></div>");
+
+	$("#" + continueButtonId).click((e) =>{
+		switchToRematchMenu();
+	});
+}
+
+function showColorSchemeButtons(){
+	let leftId = "leftColorSchemeButton";
+	let rightId = "rightColorSchemeButton";
+	$("body").append("<button id=\"leftColorSchemeButton\" class=\"colorSchemeButton\">&lt;</button>\n<button id=\"rightColorSchemeButton\" class=\"colorSchemeButton\">&gt;</button>");
+
+	$("#" + leftId).click((e) =>{
+		gotoColorSchemePrevious();
+	});
+	$("#" + rightId).click((e) =>{
+		gotoColorSchemeNext();
+	});
+}
+
+//#endregion
+
+//#region Color scheme changing
+
+function gotoColorSchemePrevious(){
+	--g_colorSchemeIndex;
+	if (g_colorSchemeIndex < 0){
+		g_colorSchemeIndex = s_colorSchemes.length - 1;
+	}
+	updateColorSchemeCookie();
+}
+
+function gotoColorSchemeNext(){
+	++g_colorSchemeIndex;
+	g_colorSchemeIndex %= s_colorSchemes.length;
+	updateColorSchemeCookie();
+}
+
+function updateColorSchemeCookie(){
+	deleteCookie(s_cookies.colorScheme);
+	createCookie(s_cookies.colorScheme, g_colorSchemeIndex, 30);
+	console.log("Current color scheme: " + g_colorSchemeIndex);
 }
 
 //#endregion
