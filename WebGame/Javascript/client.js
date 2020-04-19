@@ -10,7 +10,7 @@ var g_canvasHeight = 0;
 var g_socket = undefined;
 var g_username = undefined;
 var g_board = undefined;
-var g_disablePlay = false;
+var g_messageIsShowing = false;
 
 var s_clientStates = {mainMenu: 0, inGame:1}
 var g_clientState = s_clientStates.inGame;
@@ -243,6 +243,7 @@ class Board extends Renderable
 			throw "Exception: Invalid input.";
 		}
 		this.private_addVisualChip(lastPlayedTeam, lastPlayedSlot);
+		this.private_updateActiveSlot();
 	}
 
 	// Adds a chip to be rendered
@@ -335,7 +336,7 @@ class Board extends Renderable
 			fillCircle(activeSlotCoords.x,
 				activeSlotCoords.y,
 				this.radius + 1, // Make the chip slightly bigger than the slot
-				this.colorScheme.teams[this.iAmPlayer] + "88");
+				this.colorScheme.teams[this.iAmPlayer] + "a8");
 		}
 
 		for (let i = 0; i < this.visualChips.length; ++i)
@@ -647,10 +648,6 @@ function InitializeSocket(){
 		g_board.setState(s_gameStates.finished);
 		g_board.setWinner(winner.winningTeam, winner.winningSlots);
 	});
-	g_socket.on("gameClosed", ()=>{
-		// TODO Alert that the game was closed
-		g_clientState = s_clientStates.mainMenu;
-	});
 
 	g_socket.emit("registerRequest", {username:g_username});
 
@@ -670,7 +667,7 @@ function leaveGame(){
 }
 
 function playTurn(col){
-	if (g_disablePlay){
+	if (g_messageIsShowing){
 		return;
 	}
 	g_socket.emit("playTurn", col);
@@ -790,6 +787,9 @@ function switchToJoinMenu(){
 	$("#" + usernameInputId).val(g_username);
 
 	let action = (e) =>{
+		if (g_messageIsShowing){
+			return;
+		}
 		let nickname = ($("#" + usernameInputId).val());
 		let gameId = makeStringNumeric($("#" + gameIdId).val());
 		if (!gameId){
@@ -826,6 +826,9 @@ function switchToCreateMenu(){
 	$("#" + usernameInputId).val(g_username);
 
 	let action = (e) =>{
+		if (g_messageIsShowing){
+			return;
+		}
 		let nickname = ($("#" + usernameInputId).val());
 		createGame(nickname);
 	};
@@ -845,13 +848,13 @@ function switchToCreateMenu(){
 
 function showMessage(message, goHome){
 	let buttonText = goHome ? "Home" : "Okay";
-	let buttonId = "messageButton";
+	let buttonClass = goHome ? "okayButton" : "homeButton";
 	let messageId = "messageDiv";
 	setOverlayVisibility(true);
-	g_disablePlay = true;
-	$("body").append("<div class=\"menuInFrontOfOverlay\" id=\"" + messageId + "\"><div id=\"error\"><label class=\"grid-row=1\">" + message + "<\/label><button class=\"grid-row=2\" id=\"" + buttonId + "\">" + buttonText + "<\/button><\/div></div>");
+	g_messageIsShowing = true;
+	$("body").append("<div class=\"menuInFrontOfOverlay\" id=\"" + messageId + "\"><div id=\"error\"><label class=\"grid-row=1\">" + message + "<\/label><button class=\"grid-row=2\ " + buttonClass + "\">" + buttonText + "<\/button><\/div></div>");
 
-	$("#" + buttonId).click((e) =>{
+	$("." + buttonClass).click((e) =>{
 		let message = $("#" + messageId);
 		if (message){
 			message.remove();
@@ -861,7 +864,7 @@ function showMessage(message, goHome){
 			leaveGame();
 			switchToMainMenu();
 		}
-		g_disablePlay = false;
+		g_messageIsShowing = false;
 	});
 }
 

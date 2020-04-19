@@ -255,7 +255,7 @@ class Game{
 		}
 		let index = this.players.indexOf(user);
 		if (index < 0){
-			console.log("Did not find user " + user.isername + " in game " + this.id);
+			console.log("Did not find user " + user.username + " in game " + this.id);
 		}
 		if (!this.players[0].getSocketId() === user.getSocketId() &&
 			!this.players[1].getSocketId() === user.getSocketId())
@@ -268,7 +268,7 @@ class Game{
 		}
 		let slot = this.board.addChip(this.currentTeamTurn, col);
 		if (slot && slot.col !== -1 && slot.row !== -1){
-			console.log("User " + user.isername + " in game " + this.id + " played at col:" + slot.col +", " + slot.row);
+			console.log(user.username + " in game " + this.id + " played at col:" + slot.col +", " + slot.row);
 			// Notify of added chip
 			for (let player of this.players){
 				player.socket.emit("boardUpdate", {board: this.board.board, slot:slot, team: this.currentTeamTurn});
@@ -634,13 +634,13 @@ function makeSafeUsername(username){
 function makeStringAlphaNumeric(string) {
 	string = string.replace(/\s+/gm, " ");
 	string = string.trim();
-	return string.replace(/[^0-9a-zA-Z ]/gmi, "");
+	return string.replace(/[^0-9a-zA-Z -]/gmi, "");
 }
 
 let names = [];
 names.push( ["Artless", "Bootless", "Craven", "Dankish", "Errant", "Fawning", "Frothy", "Goatish", "Jarring", "Mangled", "Puking", "Puny", "Saucy", "Spongey", "Vain", "Warped", "Wayward", "Weedy", "Yeasty"] );
 //names.push( ["Bat-fowling", "Beef-witted", "Beetle-headed", "Boil-Brained", "Clay-brained", "Dizzy-eyed", "Orc-skinned", "Flap-mouthed", "Dull-headed", "Rough-hewn", "Rump-fed", "Toad-spotted", "Urchin-snouted"] );
-names.push( ["Baggage", "Barnacle", "Boar-pig", "Bug-bear", "Bum", "Canker-blossom", "clotpole", "Dewberry", "Dink", "Flap-dragon", "Flax-wench", "Foot-licker", "Giglet", "Haggard", "Harpy", "Hedge-pig", "Horn-beast", "Lewdster", "Lout", "Maggot-pie", "Malt-worm", "Measle", "Minnow", "Nut", "Worm-eater"] );
+names.push( ["Baggage", "Barnacle", "Boar-pig", "Bug-bear", "Bum", "Canker-blossom", "Clotpole", "Dewberry", "Dink", "Flap-dragon", "Flax-wench", "Foot-licker", "Giglet", "Haggard", "Harpy", "Hedge-pig", "Horn-beast", "Lewdster", "Lout", "Maggot-pie", "Malt-worm", "Measle", "Minnow", "Nut", "Worm-eater"] );
 
 // From https://jsfiddle.net/ygo5a48r/
 function generateRandomUsername() {
