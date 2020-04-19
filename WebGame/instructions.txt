@@ -1,0 +1,23 @@
+Hello! Welcome to my SENG 533 individual final project.
+
+I have created the game of Connect Four. 
+
+To Play:
+Nickname - your displayed nickname, remembered in cookies.
+Create a game - makes a new game that another player can join by entering the game ID listed on the screen.
+Join a game - join a specific game by entering the game ID, or join a random game by leaving blank.
+Play a chip - click on the board, and a chip will be played at the highlighted slot. 
+Rematch - after finishing a game, click continue, and request a rematch with the opponent, you will be notified
+	if the opponent leaves the match. This game can only be joined through the rematch menu.
+Color scheme - while in a game, press either left or right buttons to cycle through color schemes. This choice
+	is saved in your cookies.
+
+To Run:
+NodeJs must be installed, as well as socket.io and express.
+In a terminal, navigate the directory this file is in. Type the following command to start:
+node server.js
+
+
+Made by: 
+Jordan Nordh
+10176002

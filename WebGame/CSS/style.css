@@ -17,7 +17,6 @@ body {
 
 * {
 	font-family: 'Righteous', cursive;
-
 	/* From https://www.arungudelli.com/tutorial/css/disable-text-selection-in-html-using-user-select-css-property/*/
 	user-select: none;
    -webkit-user-select: none;

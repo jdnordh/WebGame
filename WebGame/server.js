@@ -1,4 +1,9 @@
 "use strict";
+
+/*
+ Copyright Jordan Nordh 2020
+*/
+
 //#region Initialization
 
 var express = require("express");
@@ -221,7 +226,7 @@ class Game{
 		this.currentTeamTurn = 0;
 		this.rematchId = -1;
 		this.isRematch = isRematch;
-		this.isClosed = false;
+		this.isClosed = isRematch;
 	}
 
 	getData(){
@@ -405,11 +410,11 @@ io.on("connection", (socket) => {
 				return;
 			}
 			else {
-				sendGameError(socket, "No games found to join!");
-				return;
+				// Create a game if none to join
+				id = -2;
 			}
 		}
-		else if (id === -2){
+		if (id === -2){
 			// Create game
 			let createdGame = getNewGame();
 			enterUserIntoGame(user, createdGame);
@@ -461,14 +466,14 @@ io.on("connection", (socket) => {
 		if (oldGame.rematchId !== -1){
 			removeUserTheirGame(user, true);
 			rematchGame = getGameFromId(oldGame.rematchId);
-			enterUserIntoGame(user, rematchGame);
+			enterUserIntoGame(user, rematchGame, true);
 		}
 		else{
 			// Create new game
 			removeUserTheirGame(user, true);
 			rematchGame = getNewGame(true);
 			oldGame.rematchId = rematchGame.id;
-			enterUserIntoGame(user, rematchGame);
+			enterUserIntoGame(user, rematchGame, true);
 		}
 	});
 
@@ -565,8 +570,8 @@ function getNewGame(isRematch = false){
 }
 
 // Enters a user into a game, notifies them, and starts the game if needed
-function enterUserIntoGame(user, game){
-	if (!game.isAcceptingPlayers()){
+function enterUserIntoGame(user, game, isRematch = false){
+	if (!game.isAcceptingPlayers() && !isRematch){
 		console.log("Tried to enter user " + user.username + " into a closed game " + game.id);
 		return;
 	}

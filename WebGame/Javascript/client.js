@@ -1,5 +1,9 @@
 "use strict";
 
+/*
+ Copyright Jordan Nordh 2020
+*/
+
 //#region App Variables
 
 var pi = 3.14159265358979323;
@@ -135,9 +139,12 @@ class Board extends Renderable
 		});
 	}
 
+	getOtherPlayerIndex(){
+		return (this.iAmPlayer + 1) % 2;
+	}
+
 	getOtherPlayerName(){
-		let index = (this.iAmPlayer + 1) % 2;
-		return this.players[index];
+		return this.players[this.getOtherPlayerIndex()];
 	}
 
 	setState(state){
@@ -377,11 +384,18 @@ class Board extends Renderable
 				this.renderHeadingText(text, color);
 				break;
 			}
+			case s_gameStates.waitingForTurn:
+			{
+				let text = "Waiting for " + this.getOtherPlayerName() + "...";
+				let color = this.colorScheme.teams[this.getOtherPlayerIndex()];
+				this.renderHeadingText(text, color);
+				break;
+			}
 			case s_gameStates.waitingForPlayer:
 			{
 				if (this.isRematch){
 					// Show waiting for text
-					let text = "Waiting for " + this.getOtherPlayerName();
+					let text = "Waiting for " + this.getOtherPlayerName() + " to join...";
 					this.renderHeadingText(text, this.colorScheme.board);
 				}
 				else {
@@ -422,7 +436,7 @@ class Board extends Renderable
 			// Opponent username
 			textX = xPercentToPixel(90);
 			textY = yPercentToPixel(92);
-			let otherPlayer = (this.iAmPlayer + 1) % 2;
+			let otherPlayer = this.getOtherPlayerIndex();
 			drawText(this.players[otherPlayer], textX, textY, this.colorScheme.teams[otherPlayer], usernameSize, "right");
 		}
 	}
