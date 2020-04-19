@@ -221,7 +221,7 @@ class Game{
 		this.currentTeamTurn = 0;
 		this.rematchId = -1;
 		this.isRematch = isRematch;
-		this.isAcceptingPlayers = true;
+		this.isClosed = false;
 	}
 
 	getData(){
@@ -249,6 +249,7 @@ class Game{
 
 	// Play a turn of the game, returns 1 if successful, -1 if invalid column or team
 	playTurn(user, col){
+		console.log(user.username + " is trying to play in column " + col);
 		if (!this.isReadyToPlay() || !this.isStarted || this.isFinished){
 			return -1;
 		}
@@ -261,9 +262,13 @@ class Game{
 		{
 			return -1;
 		}
+		if (index !== this.currentTeamTurn){
+			console.log(user.username + " is trying to play out of turn.");
+			return;
+		}
 		let slot = this.board.addChip(this.currentTeamTurn, col);
 		if (slot && slot.col !== -1 && slot.row !== -1){
-			//console.log("User " + user.isername + " in game " + this.id + " played at col:" + slot.col +", " + slot.row);
+			console.log("User " + user.isername + " in game " + this.id + " played at col:" + slot.col +", " + slot.row);
 			// Notify of added chip
 			for (let player of this.players){
 				player.socket.emit("boardUpdate", {board: this.board.board, slot:slot, team: this.currentTeamTurn});
@@ -318,12 +323,12 @@ class Game{
 		}
 		this.players.push(user);
 		if (this.players.length === 2){
-			this.isAcceptingPlayers = false;
+			this.isClosed = true;
 		}
 	}
 
 	isAcceptingPlayers(){
-		return this.isAcceptingPlayers;
+		return !this.isClosed;
 	}
 
 	isReadyToPlay(){

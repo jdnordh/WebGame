@@ -789,15 +789,24 @@ function switchToJoinMenu(){
 	// Add current username
 	$("#" + usernameInputId).val(g_username);
 
-	// Add click handlers
-	$("#" + joinGameButtonId).click((e) =>{
+	let action = (e) =>{
 		let nickname = ($("#" + usernameInputId).val());
 		let gameId = makeStringNumeric($("#" + gameIdId).val());
 		if (!gameId){
 			gameId = -1;
 		}
 		joinGame(nickname, gameId);
-	});
+	};
+	let keyAction = (e) =>{
+		if (e.keyCode === 13) {
+			action();
+		}
+	}
+	// Handle enter on the last input field
+	$("#" + usernameInputId).on('keydown', keyAction);
+	$("#" + gameIdId).on('keydown', keyAction);
+	// Add click handlers
+	$("#" + joinGameButtonId).click(action);
 	$("#" + backButtonId).click((e) =>{
 		switchToMainMenu();
 	});
@@ -816,11 +825,19 @@ function switchToCreateMenu(){
 	// Add current username
 	$("#" + usernameInputId).val(g_username);
 
-	// Add click handlers
-	$("#" + createGameButtonId).click((e) =>{
+	let action = (e) =>{
 		let nickname = ($("#" + usernameInputId).val());
 		createGame(nickname);
-	});
+	};
+	let keyAction = (e) =>{
+		if (e.keyCode === 13) {
+			action();
+		}
+	}
+	// Handle enter on the last input field
+	$("#" + usernameInputId).on('keydown', keyAction);
+	// Add click handlers
+	$("#" + createGameButtonId).click(action);
 	$("#" + backButtonId).click((e) =>{
 		switchToMainMenu();
 	});
