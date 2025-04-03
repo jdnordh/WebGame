@@ -1,2 +1,2 @@
 # WebGame
-A web application game served by a Node Js server.
+A Connect Four game served by a Node Js server.
